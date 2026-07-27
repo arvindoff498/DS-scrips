@@ -18,6 +18,8 @@
   const DEFAULTS = {
     minStamina: 40,
     monsterName: "Black Banner Footsoldier",
+    monsterName2: "Feastborn Ear-Snatcher",
+    monsterName3: "Dread Knight",
     minHp: 10000000,
     targetDmg: 3000000,
     delayMs: 2000,
@@ -48,6 +50,12 @@
     return cleaned ? parseInt(cleaned[0], 10) : 0;
   }
 
+  function getActiveMobNames() {
+    return [CFG.monsterName, CFG.monsterName2, CFG.monsterName3]
+      .map(s => (s || '').trim())
+      .filter(Boolean);
+  }
+
   // --- FLOATING HUD & SETTINGS INTERFACE ---
   function buildHUD() {
     if (!true || document.getElementById('vfa-hud-root')) return;
@@ -57,7 +65,7 @@
     root.style.cssText = 'position:fixed;bottom:12px;right:12px;z-index:999999;font-family:system-ui,-apple-system,sans-serif;font-size:12px;color:#f8fafc;';
 
     root.innerHTML = `
-      <div id="vfa-hud-card" style="background:#0f172a;border:1px solid #0284c7;border-radius:10px;padding:10px 14px;box-shadow:0 8px 24px rgba(0,0,0,0.6);width:260px;transition:all 0.2s ease;">
+      <div id="vfa-hud-card" style="background:#0f172a;border:1px solid #0284c7;border-radius:10px;padding:10px 14px;box-shadow:0 8px 24px rgba(0,0,0,0.6);width:280px;transition:all 0.2s ease;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;border-bottom:1px solid #1e293b;padding-bottom:6px;">
           <div style="display:flex;align-items:center;gap:6px;">
             <strong style="color:#38bdf8;font-size:13px;">⚡ vfa automate</strong>
@@ -75,13 +83,25 @@
         </div>
 
         <!-- SETTINGS PANEL (TOGGLEABLE) -->
-        <div id="vfa-settings-panel" style="display:${settingsOpen ? 'block' : 'none'};margin-bottom:8px;border-top:1px border-bottom:1px;border-color:#334155;padding:8px 0;">
-          <div style="font-weight:bold;color:#a855f7;margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Live Parameters</div>
-          
+        <div id="vfa-settings-panel" style="display:${settingsOpen ? 'block' : 'none'};margin-bottom:8px;border-top:1px solid #334155;border-bottom:1px solid #334155;padding:8px 0;">
+          <div style="font-weight:bold;color:#a855f7;margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Target Mobs (Up to 3)</div>
+
           <div style="margin-bottom:4px;">
-            <label style="display:block;font-size:10px;color:#cbd5e1;">Target Monster:</label>
-            <input type="text" id="vfa-in-monster" value="${CFG.monsterName}" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#38bdf8;padding:3px 6px;border-radius:4px;font-size:11px;" />
+            <label style="display:block;font-size:10px;color:#38bdf8;">Mob 1 (Primary):</label>
+            <input type="text" id="vfa-in-monster1" value="${CFG.monsterName || ''}" placeholder="Primary Mob Name" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#38bdf8;padding:3px 6px;border-radius:4px;font-size:11px;" />
           </div>
+
+          <div style="margin-bottom:4px;">
+            <label style="display:block;font-size:10px;color:#cbd5e1;">Mob 2 (Secondary):</label>
+            <input type="text" id="vfa-in-monster2" value="${CFG.monsterName2 || ''}" placeholder="Secondary Mob (Optional)" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#f43f5e;padding:3px 6px;border-radius:4px;font-size:11px;" />
+          </div>
+
+          <div style="margin-bottom:6px;">
+            <label style="display:block;font-size:10px;color:#cbd5e1;">Mob 3 (Tertiary):</label>
+            <input type="text" id="vfa-in-monster3" value="${CFG.monsterName3 || ''}" placeholder="Tertiary Mob (Optional)" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#a855f7;padding:3px 6px;border-radius:4px;font-size:11px;" />
+          </div>
+
+          <div style="font-weight:bold;color:#38bdf8;margin:8px 0 4px 0;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Battle Parameters</div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px;">
             <div>
@@ -141,7 +161,9 @@
     };
 
     document.getElementById('vfa-save-btn').onclick = () => {
-      CFG.monsterName = document.getElementById('vfa-in-monster').value.trim();
+      CFG.monsterName = document.getElementById('vfa-in-monster1').value.trim();
+      CFG.monsterName2 = document.getElementById('vfa-in-monster2').value.trim();
+      CFG.monsterName3 = document.getElementById('vfa-in-monster3').value.trim();
       CFG.targetDmg = parseInt(document.getElementById('vfa-in-dmg').value, 10) || DEFAULTS.targetDmg;
       CFG.minStamina = parseInt(document.getElementById('vfa-in-stam').value, 10) || DEFAULTS.minStamina;
       CFG.maxKCount = parseInt(document.getElementById('vfa-in-maxk').value, 10) || DEFAULTS.maxKCount;
@@ -200,38 +222,43 @@
       }
 
       // 2. Locate Target Monster Card
+      const activeTargets = getActiveMobNames();
       const h3s = document.getElementsByTagName('h3');
       let targetCard = null;
 
-      for (let i = 0; i < h3s.length; i++) {
-        const h3 = h3s[i];
-        if (h3.textContent.includes(CFG.monsterName)) {
-          let card = h3.parentElement;
-          while (card && !card.querySelector('.stat-value') && card !== document.body) {
-            card = card.parentElement;
-          }
-          if (!card) continue;
+      for (const targetName of activeTargets) {
+        if (targetCard) break;
 
-          // Check if Mob is DEAD (span.chip with 'DEAD' or text containing DEAD)
-          const isDead = h3.innerHTML.includes('DEAD') || 
-                         card.innerHTML.includes('DEAD') || 
-                         Array.from(card.querySelectorAll('.chip, span')).some(s => s.textContent.trim().toUpperCase() === 'DEAD');
+        for (let i = 0; i < h3s.length; i++) {
+          const h3 = h3s[i];
+          if (h3.textContent.toLowerCase().includes(targetName.toLowerCase())) {
+            let card = h3.parentElement;
+            while (card && !card.querySelector('.stat-value') && card !== document.body) {
+              card = card.parentElement;
+            }
+            if (!card) continue;
 
-          if (isDead) {
-            log('Skipping DEAD mob: ' + CFG.monsterName);
-            continue; // Skip dead mob and check next card
-          }
+            // Check if Mob is DEAD (span.chip with 'DEAD' or text containing DEAD)
+            const isDead = h3.innerHTML.includes('DEAD') ||
+                           card.innerHTML.includes('DEAD') ||
+                           Array.from(card.querySelectorAll('.chip, span')).some(s => s.textContent.trim().toUpperCase() === 'DEAD');
 
-          if (card.querySelector('.continue-btn') || card.textContent.includes('Continue the Battle')) {
-            continue;
-          }
+            if (isDead) {
+              log('Skipping DEAD mob: ' + targetName);
+              continue; // Skip dead mob and check next card
+            }
 
-          const hpEl = card.querySelector('.stat-value');
-          const monsterHp = hpEl ? parseNum(hpEl.textContent.split('/')[0]) : 0;
+            if (card.querySelector('.continue-btn') || card.textContent.includes('Continue the Battle')) {
+              continue;
+            }
 
-          if (monsterHp > CFG.minHp) {
-            targetCard = card;
-            break;
+            const hpEl = card.querySelector('.stat-value');
+            const monsterHp = hpEl ? parseNum(hpEl.textContent.split('/')[0]) : 0;
+
+            if (monsterHp > CFG.minHp) {
+              targetCard = card;
+              break;
+            }
           }
         }
       }
@@ -254,7 +281,7 @@
     } else {
       // 3. Battle Page Logic
       // Check if Mob is DEAD on battle page
-      const isDeadOnBattle = document.body.innerHTML.includes('>DEAD<') || 
+      const isDeadOnBattle = document.body.innerHTML.includes('>DEAD<') ||
                              Array.from(document.querySelectorAll('.chip, span')).some(s => s.textContent.trim().toUpperCase() === 'DEAD');
 
       if (isDeadOnBattle) {
@@ -272,17 +299,27 @@
       const currentDamage = dmgEl ? parseNum(dmgEl.textContent) : 0;
 
       if (currentDamage < CFG.targetDmg) {
-        log('Attacking (' + currentDamage.toLocaleString() + ' / ' + CFG.targetDmg.toLocaleString() + ')');
         const remDmg = CFG.targetDmg - currentDamage;
         const buttons = Array.from(document.querySelectorAll('.attack-btn, button'));
-        let attackBtn = null;
+        const powerBtn = buttons.find(b => b.textContent.includes('Power Slash') && !b.disabled);
+        const slashBtn = buttons.find(b => b.textContent.includes('Slash') && !b.textContent.includes('Power') && !b.disabled);
 
-        if (remDmg > CFG.slashDmg * 2) {
-          attackBtn = buttons.find(b => b.textContent.includes('Power Slash'));
+        let attackBtn = null;
+        let chosenType = 'Slash';
+
+        // Stamina Optimization Strategy:
+        // If remaining damage needed <= 7 * slashDmg (e.g. ~190k DMG remaining),
+        // 1-3 regular Slashes finish the target with minimal stamina and zero overkill waste!
+        if (remDmg <= CFG.slashDmg * 7) {
+          attackBtn = slashBtn || powerBtn;
+          chosenType = attackBtn === slashBtn ? 'Slash (Stamina Saved)' : 'Power Slash';
+        } else {
+          // For large remaining damage gaps, use Power Slash for high efficiency
+          attackBtn = powerBtn || slashBtn;
+          chosenType = attackBtn === powerBtn ? 'Power Slash' : 'Slash';
         }
-        if (!attackBtn) {
-          attackBtn = buttons.find(b => b.textContent.includes('Slash') && !b.textContent.includes('Power'));
-        }
+
+        log('Attacking [' + chosenType + '] (' + currentDamage.toLocaleString() + ' / ' + CFG.targetDmg.toLocaleString() + ')');
 
         if (attackBtn) {
           attackBtn.click();

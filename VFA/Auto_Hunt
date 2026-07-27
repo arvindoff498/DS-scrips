@@ -25,7 +25,8 @@
     delayMs: 2000,
     maxKCount: 50,
     slashDmg: 63863,
-    joinTimeout: 6000
+    joinTimeout: 6000,
+    autoRefreshSec: 20
   };
 
   // Load persistent user adjustments from localStorage
@@ -43,6 +44,7 @@
   let isRunning = localStorage.getItem('vfa_enabled') !== 'false';
   let loopTimer = null;
   let settingsOpen = false;
+  let noMobSearchStart = null;
 
   function parseNum(str) {
     if (!str) return 0;
@@ -125,6 +127,11 @@
             </div>
           </div>
 
+          <div style="margin-bottom:6px;">
+            <label style="display:block;font-size:10px;color:#fbbf24;">No-Mob Refresh (s):</label>
+            <input type="number" id="vfa-in-refresh" value="${CFG.autoRefreshSec || 20}" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#fbbf24;padding:3px 6px;border-radius:4px;font-size:11px;" />
+          </div>
+
           <button id="vfa-save-btn" style="width:100%;padding:4px;background:#2563eb;color:#fff;border:none;border-radius:4px;font-weight:bold;cursor:pointer;font-size:11px;">Save Parameters</button>
         </div>
 
@@ -168,6 +175,7 @@
       CFG.minStamina = parseInt(document.getElementById('vfa-in-stam').value, 10) || DEFAULTS.minStamina;
       CFG.maxKCount = parseInt(document.getElementById('vfa-in-maxk').value, 10) || DEFAULTS.maxKCount;
       CFG.delayMs = parseInt(document.getElementById('vfa-in-delay').value, 10) || DEFAULTS.delayMs;
+      CFG.autoRefreshSec = parseInt(document.getElementById('vfa-in-refresh').value, 10) || DEFAULTS.autoRefreshSec;
 
       localStorage.setItem('vfa_config_v1', JSON.stringify(CFG));
       log('Parameters Saved!');
@@ -217,6 +225,7 @@
 
       if (currentStamina < CFG.minStamina) {
         log('Low Stamina (' + currentStamina + ' < ' + CFG.minStamina + '). Waiting...', currentStamina);
+        noMobSearchStart = null;
         loopTimer = setTimeout(runLoop, 8000);
         return;
       }
@@ -264,6 +273,7 @@
       }
 
       if (targetCard) {
+        noMobSearchStart = null; // Found target! Reset no-mob timer
         const joinBtn = targetCard.querySelector('.join-btn') || targetCard.querySelector('button');
         if (joinBtn) {
           log('Joining Battle...');
@@ -276,6 +286,22 @@
         }
       }
 
+      // 2.5 No Matching Live Mob Found -> Check 20-second Refresh Timeout
+      if (!noMobSearchStart) {
+        noMobSearchStart = Date.now();
+      }
+
+      const elapsedSec = Math.floor((Date.now() - noMobSearchStart) / 1000);
+      const refreshLimit = CFG.autoRefreshSec || 20;
+
+      if (elapsedSec >= refreshLimit) {
+        log('No mob found for ' + elapsedSec + 's! Refreshing page...');
+        noMobSearchStart = null;
+        setTimeout(() => location.reload(), 400);
+        return;
+      }
+
+      log('Searching target (' + elapsedSec + 's/' + refreshLimit + 's)...', currentStamina);
       loopTimer = setTimeout(runLoop, 3500);
 
     } else {

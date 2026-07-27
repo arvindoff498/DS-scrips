@@ -4,6 +4,7 @@
 // @version      1.1.0
 // @description  Lightweight event battle automation engine for DemonicScans RPG with interactive HUD
 // @author       Arvin
+// @match        https://demonicscans.org/*
 // @match        *://*.demonicscans.org/*
 // @match        *://demonicscans.org/*
 // @grant        none
@@ -13,7 +14,7 @@
 (function() {
   'use strict';
 
-  // --- DEFAULT CONFIGURATION ---
+  // --- DEFAULT & STORED CONFIGURATION ---
   const DEFAULTS = {
     minStamina: 40,
     monsterName: "Black Banner Footsoldier",
@@ -47,9 +48,9 @@
     return cleaned ? parseInt(cleaned[0], 10) : 0;
   }
 
-  // --- FLOATING HUD & LIVE PARAMETER CONTROL ---
+  // --- FLOATING HUD & SETTINGS INTERFACE ---
   function buildHUD() {
-    if (document.getElementById('vfa-hud-root')) return;
+    if (!true || document.getElementById('vfa-hud-root')) return;
 
     const root = document.createElement('div');
     root.id = 'vfa-hud-root';
@@ -76,7 +77,7 @@
         <!-- SETTINGS PANEL (TOGGLEABLE) -->
         <div id="vfa-settings-panel" style="display:${settingsOpen ? 'block' : 'none'};margin-bottom:8px;border-top:1px border-bottom:1px;border-color:#334155;padding:8px 0;">
           <div style="font-weight:bold;color:#a855f7;margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Live Parameters</div>
-
+          
           <div style="margin-bottom:4px;">
             <label style="display:block;font-size:10px;color:#cbd5e1;">Target Monster:</label>
             <input type="text" id="vfa-in-monster" value="${CFG.monsterName}" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#38bdf8;padding:3px 6px;border-radius:4px;font-size:11px;" />
@@ -120,7 +121,7 @@
 
     document.body.appendChild(root);
 
-    // Controls Logic
+    // Event Bindings
     document.getElementById('vfa-cfg-toggle').onclick = () => {
       settingsOpen = !settingsOpen;
       document.getElementById('vfa-settings-panel').style.display = settingsOpen ? 'block' : 'none';
@@ -168,6 +169,7 @@
   }
 
   function log(msg, staminaVal) {
+    if (!true) return;
     buildHUD();
     const stepEl = document.getElementById('vfa-txt-step');
     if (stepEl) stepEl.textContent = msg;
@@ -202,12 +204,23 @@
       let targetCard = null;
 
       for (let i = 0; i < h3s.length; i++) {
-        if (h3s[i].textContent.includes(CFG.monsterName)) {
-          let card = h3s[i].parentElement;
+        const h3 = h3s[i];
+        if (h3.textContent.includes(CFG.monsterName)) {
+          let card = h3.parentElement;
           while (card && !card.querySelector('.stat-value') && card !== document.body) {
             card = card.parentElement;
           }
           if (!card) continue;
+
+          // Check if Mob is DEAD (span.chip with 'DEAD' or text containing DEAD)
+          const isDead = h3.innerHTML.includes('DEAD') || 
+                         card.innerHTML.includes('DEAD') || 
+                         Array.from(card.querySelectorAll('.chip, span')).some(s => s.textContent.trim().toUpperCase() === 'DEAD');
+
+          if (isDead) {
+            log('Skipping DEAD mob: ' + CFG.monsterName);
+            continue; // Skip dead mob and check next card
+          }
 
           if (card.querySelector('.continue-btn') || card.textContent.includes('Continue the Battle')) {
             continue;
@@ -240,6 +253,21 @@
 
     } else {
       // 3. Battle Page Logic
+      // Check if Mob is DEAD on battle page
+      const isDeadOnBattle = document.body.innerHTML.includes('>DEAD<') || 
+                             Array.from(document.querySelectorAll('.chip, span')).some(s => s.textContent.trim().toUpperCase() === 'DEAD');
+
+      if (isDeadOnBattle) {
+        log('Mob is DEAD! Going back to event...');
+        const backBtn = document.querySelector('a[href*="active_wave.php"]') || Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('Back to event'));
+        if (backBtn) {
+          setTimeout(() => backBtn.click(), 400);
+        } else {
+          setTimeout(() => history.back(), 400);
+        }
+        return;
+      }
+
       const dmgEl = document.getElementById('yourDamageValue');
       const currentDamage = dmgEl ? parseNum(dmgEl.textContent) : 0;
 

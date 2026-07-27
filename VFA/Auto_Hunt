@@ -218,6 +218,10 @@
     }
 
     if (!location.href.includes('battle.php')) {
+      sessionStorage.removeItem('vfa_last_dmg');
+      sessionStorage.removeItem('vfa_unchanged_count');
+      sessionStorage.removeItem('vfa_stuck_refreshed');
+
       // 1. Check Stamina
       const stamEl = document.getElementById('stamina_span');
       const currentStamina = stamEl ? parseNum(stamEl.textContent) : 0;
@@ -312,6 +316,9 @@
 
       if (isDeadOnBattle) {
         log('Mob is DEAD! Going back to event...');
+        sessionStorage.removeItem('vfa_last_dmg');
+        sessionStorage.removeItem('vfa_unchanged_count');
+        sessionStorage.removeItem('vfa_stuck_refreshed');
         const backBtn = document.querySelector('a[href*="active_wave.php"]') || Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('Back to event'));
         if (backBtn) {
           setTimeout(() => backBtn.click(), 400);
@@ -323,6 +330,40 @@
 
       const dmgEl = document.getElementById('yourDamageValue');
       const currentDamage = dmgEl ? parseNum(dmgEl.textContent) : 0;
+
+      // Track 3 unchanged attacks to handle frozen or dead mob desync
+      let lastDmg = parseInt(sessionStorage.getItem('vfa_last_dmg') || '-1', 10);
+      let unchangedCount = parseInt(sessionStorage.getItem('vfa_unchanged_count') || '0', 10);
+
+      if (lastDmg !== -1 && currentDamage === lastDmg) {
+        unchangedCount++;
+      } else {
+        unchangedCount = 0;
+      }
+
+      sessionStorage.setItem('vfa_last_dmg', currentDamage.toString());
+      sessionStorage.setItem('vfa_unchanged_count', unchangedCount.toString());
+
+      if (unchangedCount >= 3) {
+        log('Damage unchanged for 3 attacks! Refreshing page to check if mob is dead...');
+        sessionStorage.setItem('vfa_unchanged_count', '0');
+
+        if (sessionStorage.getItem('vfa_stuck_refreshed') === 'true') {
+          sessionStorage.removeItem('vfa_stuck_refreshed');
+          log('Mob still unresponsive after refresh. Returning to event...');
+          const backBtn = document.querySelector('a[href*="active_wave.php"]') || Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('Back to event'));
+          if (backBtn) {
+            setTimeout(() => backBtn.click(), 400);
+          } else {
+            setTimeout(() => history.back(), 400);
+          }
+          return;
+        }
+
+        sessionStorage.setItem('vfa_stuck_refreshed', 'true');
+        setTimeout(() => location.reload(), 400);
+        return;
+      }
 
       if (currentDamage < CFG.targetDmg) {
         const remDmg = CFG.targetDmg - currentDamage;
@@ -357,6 +398,9 @@
         // Goal Reached
         kcount++;
         localStorage.setItem('vfa_kcount', kcount.toString());
+        sessionStorage.removeItem('vfa_last_dmg');
+        sessionStorage.removeItem('vfa_unchanged_count');
+        sessionStorage.removeItem('vfa_stuck_refreshed');
         log('Battle Complete! K-Count: ' + kcount);
 
         const backBtn = document.querySelector('a[href*="active_wave.php"]') || Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('Back to event'));

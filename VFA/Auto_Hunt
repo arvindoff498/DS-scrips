@@ -1,0 +1,291 @@
+// ==UserScript==
+// @name         vfa automate
+// @namespace    http://tampermonkey.net/
+// @version      1.1.0
+// @description  Lightweight event battle automation engine for DemonicScans RPG with interactive HUD
+// @author       Arvin
+// @match        *://*.demonicscans.org/*
+// @match        *://demonicscans.org/*
+// @grant        none
+// @run-at       document-end
+// ==/UserScript==
+
+(function() {
+  'use strict';
+
+  // --- DEFAULT CONFIGURATION ---
+  const DEFAULTS = {
+    minStamina: 40,
+    monsterName: "Black Banner Footsoldier",
+    minHp: 10000000,
+    targetDmg: 3000000,
+    delayMs: 2000,
+    maxKCount: 50,
+    slashDmg: 63863,
+    joinTimeout: 6000
+  };
+
+  // Load persistent user adjustments from localStorage
+  function loadConfig() {
+    try {
+      const saved = localStorage.getItem('vfa_config_v1');
+      return saved ? { ...DEFAULTS, ...JSON.parse(saved) } : { ...DEFAULTS };
+    } catch(e) {
+      return { ...DEFAULTS };
+    }
+  }
+
+  let CFG = loadConfig();
+  let kcount = parseInt(localStorage.getItem('vfa_kcount') || '0', 10);
+  let isRunning = localStorage.getItem('vfa_enabled') !== 'false';
+  let loopTimer = null;
+  let settingsOpen = false;
+
+  function parseNum(str) {
+    if (!str) return 0;
+    const cleaned = str.replace(/,/g, '').trim().match(/\d+/);
+    return cleaned ? parseInt(cleaned[0], 10) : 0;
+  }
+
+  // --- FLOATING HUD & LIVE PARAMETER CONTROL ---
+  function buildHUD() {
+    if (document.getElementById('vfa-hud-root')) return;
+
+    const root = document.createElement('div');
+    root.id = 'vfa-hud-root';
+    root.style.cssText = 'position:fixed;bottom:12px;right:12px;z-index:999999;font-family:system-ui,-apple-system,sans-serif;font-size:12px;color:#f8fafc;';
+
+    root.innerHTML = `
+      <div id="vfa-hud-card" style="background:#0f172a;border:1px solid #0284c7;border-radius:10px;padding:10px 14px;box-shadow:0 8px 24px rgba(0,0,0,0.6);width:260px;transition:all 0.2s ease;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;border-bottom:1px solid #1e293b;padding-bottom:6px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <strong style="color:#38bdf8;font-size:13px;">⚡ vfa automate</strong>
+            <span id="vfa-status-badge" style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:bold;background:${isRunning ? '#16a34a' : '#dc2626'};color:#fff;">
+              ${isRunning ? 'ACTIVE' : 'PAUSED'}
+            </span>
+          </div>
+          <button id="vfa-cfg-toggle" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;padding:2px 4px;" title="Toggle Parameter Settings">⚙️</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px;background:#1e293b50;padding:6px;border-radius:6px;border:1px solid #334155;">
+          <div>K-Count: <strong id="vfa-txt-kcount" style="color:#fbbf24;">${kcount}/${CFG.maxKCount}</strong></div>
+          <div>Stamina: <strong id="vfa-txt-stamina" style="color:#4ade80;">--</strong></div>
+          <div style="grid-column:span 2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Status: <strong id="vfa-txt-step" style="color:#38bdf8;">Initializing...</strong></div>
+        </div>
+
+        <!-- SETTINGS PANEL (TOGGLEABLE) -->
+        <div id="vfa-settings-panel" style="display:${settingsOpen ? 'block' : 'none'};margin-bottom:8px;border-top:1px border-bottom:1px;border-color:#334155;padding:8px 0;">
+          <div style="font-weight:bold;color:#a855f7;margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Live Parameters</div>
+
+          <div style="margin-bottom:4px;">
+            <label style="display:block;font-size:10px;color:#cbd5e1;">Target Monster:</label>
+            <input type="text" id="vfa-in-monster" value="${CFG.monsterName}" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#38bdf8;padding:3px 6px;border-radius:4px;font-size:11px;" />
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px;">
+            <div>
+              <label style="display:block;font-size:10px;color:#cbd5e1;">Target DMG:</label>
+              <input type="number" id="vfa-in-dmg" value="${CFG.targetDmg}" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#4ade80;padding:3px 6px;border-radius:4px;font-size:11px;" />
+            </div>
+            <div>
+              <label style="display:block;font-size:10px;color:#cbd5e1;">Min Stamina:</label>
+              <input type="number" id="vfa-in-stam" value="${CFG.minStamina}" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#fbbf24;padding:3px 6px;border-radius:4px;font-size:11px;" />
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+            <div>
+              <label style="display:block;font-size:10px;color:#cbd5e1;">Max K-Count:</label>
+              <input type="number" id="vfa-in-maxk" value="${CFG.maxKCount}" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#cbd5e1;padding:3px 6px;border-radius:4px;font-size:11px;" />
+            </div>
+            <div>
+              <label style="display:block;font-size:10px;color:#cbd5e1;">Delay (ms):</label>
+              <input type="number" id="vfa-in-delay" value="${CFG.delayMs}" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#cbd5e1;padding:3px 6px;border-radius:4px;font-size:11px;" />
+            </div>
+          </div>
+
+          <button id="vfa-save-btn" style="width:100%;padding:4px;background:#2563eb;color:#fff;border:none;border-radius:4px;font-weight:bold;cursor:pointer;font-size:11px;">Save Parameters</button>
+        </div>
+
+        <div style="display:flex;gap:6px;">
+          <button id="vfa-btn-toggle" style="flex:1;padding:5px;border:none;border-radius:5px;background:${isRunning ? '#dc2626' : '#16a34a'};color:#fff;font-weight:bold;cursor:pointer;font-size:11px;">
+            ${isRunning ? 'Pause Script' : 'Start Script'}
+          </button>
+          <button id="vfa-btn-reset" style="padding:5px 10px;border:1px solid #475569;border-radius:5px;background:#1e293b;color:#cbd5e1;cursor:pointer;font-size:11px;">
+            Reset K
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(root);
+
+    // Controls Logic
+    document.getElementById('vfa-cfg-toggle').onclick = () => {
+      settingsOpen = !settingsOpen;
+      document.getElementById('vfa-settings-panel').style.display = settingsOpen ? 'block' : 'none';
+    };
+
+    document.getElementById('vfa-btn-toggle').onclick = () => {
+      isRunning = !isRunning;
+      localStorage.setItem('vfa_enabled', isRunning ? 'true' : 'false');
+      updateHUDState();
+      if (isRunning) runLoop(); else clearTimeout(loopTimer);
+    };
+
+    document.getElementById('vfa-btn-reset').onclick = () => {
+      kcount = 0;
+      localStorage.setItem('vfa_kcount', '0');
+      document.getElementById('vfa-txt-kcount').textContent = '0/' + CFG.maxKCount;
+    };
+
+    document.getElementById('vfa-save-btn').onclick = () => {
+      CFG.monsterName = document.getElementById('vfa-in-monster').value.trim();
+      CFG.targetDmg = parseInt(document.getElementById('vfa-in-dmg').value, 10) || DEFAULTS.targetDmg;
+      CFG.minStamina = parseInt(document.getElementById('vfa-in-stam').value, 10) || DEFAULTS.minStamina;
+      CFG.maxKCount = parseInt(document.getElementById('vfa-in-maxk').value, 10) || DEFAULTS.maxKCount;
+      CFG.delayMs = parseInt(document.getElementById('vfa-in-delay').value, 10) || DEFAULTS.delayMs;
+
+      localStorage.setItem('vfa_config_v1', JSON.stringify(CFG));
+      log('Parameters Saved!');
+      document.getElementById('vfa-txt-kcount').textContent = kcount + '/' + CFG.maxKCount;
+      settingsOpen = false;
+      document.getElementById('vfa-settings-panel').style.display = 'none';
+    };
+  }
+
+  function updateHUDState() {
+    const badge = document.getElementById('vfa-status-badge');
+    const toggleBtn = document.getElementById('vfa-btn-toggle');
+    if (badge) {
+      badge.textContent = isRunning ? 'ACTIVE' : 'PAUSED';
+      badge.style.background = isRunning ? '#16a34a' : '#dc2626';
+    }
+    if (toggleBtn) {
+      toggleBtn.textContent = isRunning ? 'Pause Script' : 'Start Script';
+      toggleBtn.style.background = isRunning ? '#dc2626' : '#16a34a';
+    }
+  }
+
+  function log(msg, staminaVal) {
+    buildHUD();
+    const stepEl = document.getElementById('vfa-txt-step');
+    if (stepEl) stepEl.textContent = msg;
+    if (staminaVal !== undefined) {
+      const stamEl = document.getElementById('vfa-txt-stamina');
+      if (stamEl) stamEl.textContent = staminaVal;
+    }
+  }
+
+  // --- AUTOMATION ENGINE LOOP ---
+  function runLoop() {
+    if (!isRunning) return;
+    if (kcount >= CFG.maxKCount) {
+      log('Max K-Count Reached (' + kcount + '/' + CFG.maxKCount + ')');
+      return;
+    }
+
+    if (!location.href.includes('battle.php')) {
+      // 1. Check Stamina
+      const stamEl = document.getElementById('stamina_span');
+      const currentStamina = stamEl ? parseNum(stamEl.textContent) : 0;
+      log('Searching target...', currentStamina);
+
+      if (currentStamina < CFG.minStamina) {
+        log('Low Stamina (' + currentStamina + ' < ' + CFG.minStamina + '). Waiting...', currentStamina);
+        loopTimer = setTimeout(runLoop, 8000);
+        return;
+      }
+
+      // 2. Locate Target Monster Card
+      const h3s = document.getElementsByTagName('h3');
+      let targetCard = null;
+
+      for (let i = 0; i < h3s.length; i++) {
+        if (h3s[i].textContent.includes(CFG.monsterName)) {
+          let card = h3s[i].parentElement;
+          while (card && !card.querySelector('.stat-value') && card !== document.body) {
+            card = card.parentElement;
+          }
+          if (!card) continue;
+
+          if (card.querySelector('.continue-btn') || card.textContent.includes('Continue the Battle')) {
+            continue;
+          }
+
+          const hpEl = card.querySelector('.stat-value');
+          const monsterHp = hpEl ? parseNum(hpEl.textContent.split('/')[0]) : 0;
+
+          if (monsterHp > CFG.minHp) {
+            targetCard = card;
+            break;
+          }
+        }
+      }
+
+      if (targetCard) {
+        const joinBtn = targetCard.querySelector('.join-btn') || targetCard.querySelector('button');
+        if (joinBtn) {
+          log('Joining Battle...');
+          const currentUrl = location.href;
+          joinBtn.click();
+          setTimeout(() => {
+            if (location.href === currentUrl) location.reload();
+          }, CFG.joinTimeout);
+          return;
+        }
+      }
+
+      loopTimer = setTimeout(runLoop, 3500);
+
+    } else {
+      // 3. Battle Page Logic
+      const dmgEl = document.getElementById('yourDamageValue');
+      const currentDamage = dmgEl ? parseNum(dmgEl.textContent) : 0;
+
+      if (currentDamage < CFG.targetDmg) {
+        log('Attacking (' + currentDamage.toLocaleString() + ' / ' + CFG.targetDmg.toLocaleString() + ')');
+        const remDmg = CFG.targetDmg - currentDamage;
+        const buttons = Array.from(document.querySelectorAll('.attack-btn, button'));
+        let attackBtn = null;
+
+        if (remDmg > CFG.slashDmg * 2) {
+          attackBtn = buttons.find(b => b.textContent.includes('Power Slash'));
+        }
+        if (!attackBtn) {
+          attackBtn = buttons.find(b => b.textContent.includes('Slash') && !b.textContent.includes('Power'));
+        }
+
+        if (attackBtn) {
+          attackBtn.click();
+          loopTimer = setTimeout(runLoop, CFG.delayMs);
+        } else {
+          loopTimer = setTimeout(runLoop, 1000);
+        }
+      } else {
+        // Goal Reached
+        kcount++;
+        localStorage.setItem('vfa_kcount', kcount.toString());
+        log('Battle Complete! K-Count: ' + kcount);
+
+        const backBtn = document.querySelector('a[href*="active_wave.php"]') || Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('Back to event'));
+        if (backBtn) {
+          setTimeout(() => backBtn.click(), 600);
+        } else {
+          setTimeout(() => history.back(), 600);
+        }
+      }
+    }
+  }
+
+  // Auto-init on page ready
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    buildHUD();
+    if (isRunning) setTimeout(runLoop, 500);
+  } else {
+    window.addEventListener('DOMContentLoaded', () => {
+      buildHUD();
+      if (isRunning) setTimeout(runLoop, 500);
+    });
+  }
+})();

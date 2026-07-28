@@ -68,21 +68,10 @@ The generated script includes a standard compliant Userscript metadata block tha
 
 ---
 
-## 🎮 4. How the Automation Engine Works
+## 🎮 4. How to change Damage Value
 
-1. **Stamina Check**: Checks the `#stamina_span` element on event pages. If current stamina is below your configured threshold (e.g., `< 40`), the script waits and re-checks every 8 seconds.
-2. **Target Monster Search**:
-   - Scans all monster cards (`<h3>` elements) on the event wave page.
-   - Filters out mobs marked with `DEAD` chip badges (`<span class="chip">DEAD</span>`).
-   - Ignores battles in progress or mobs below minimum HP requirements.
-   - Clicks **Join Battle** on the first matching live target monster.
-3. **Automated Combat Execution**:
-   - On `battle.php`, reads `#yourDamageValue`.
-   - Selects optimal skills (`Power Slash` or `Slash`) based on remaining damage required.
-   - Executes attacks at your specified click interval.
-4. **Completion & Navigation**:
-   - Once target damage is reached, increments K-Count and returns automatically to the event wave page (`active_wave.php` or `history.back()`).
-   - Repeats until Max K-Count limit is reached.
+1. Find **// --- DEFAULT & STORED CONFIGURATION ---** at the start of script (18th line of code)
+2. Change value of **slashDmg: 67152** to the damage value of single stamina.
 
 ---
 
@@ -101,3 +90,7 @@ The generated script includes a standard compliant Userscript metadata block tha
 
 #### Q: How do I reset my K-Count back to 0?
 - Click the **Reset K** button on the floating HUD overlay, or execute `localStorage.setItem('vfa_kcount', '0')` in your browser console.
+
+#### Q: The script is doing extra damage then required?
+- Change the **Default Damage Value** in script. See, **How to change Damage Value**
+

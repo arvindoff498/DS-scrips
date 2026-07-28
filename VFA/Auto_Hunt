@@ -12,61 +12,61 @@
 // ==/UserScript==
 
 (function() {
-  'use strict';
+    'use strict';
 
-  // --- DEFAULT & STORED CONFIGURATION ---
-  const DEFAULTS = {
-    minStamina: 40,
-    monsterName: "Black Banner Footsoldier",
-    monsterName2: "Feastborn Ear-Snatcher",
-    monsterName3: "Dread Knight",
-    minHp: 10000000,
-    targetDmg: 3000000,
-    delayMs: 2000,
-    maxKCount: 50,
-    slashDmg: 63863,
-    joinTimeout: 6000,
-    autoRefreshSec: 20
-  };
+    // --- DEFAULT & STORED CONFIGURATION ---
+    const DEFAULTS = {
+        minStamina: 40,
+        monsterName: "Black Banner Footsoldier",
+        monsterName2: "Feastborn Ear-Snatcher",
+        monsterName3: "Dread Knight",
+        minHp: 10000000,
+        targetDmg: 3000000,
+        delayMs: 2000,
+        maxKCount: 50,
+        slashDmg: 67152,
+        joinTimeout: 6000,
+        autoRefreshSec: 20
+    };
 
-  // Load persistent user adjustments from localStorage
-  function loadConfig() {
-    try {
-      const saved = localStorage.getItem('vfa_config_v1');
-      return saved ? { ...DEFAULTS, ...JSON.parse(saved) } : { ...DEFAULTS };
-    } catch(e) {
-      return { ...DEFAULTS };
+    // Load persistent user adjustments from localStorage
+    function loadConfig() {
+        try {
+            const saved = localStorage.getItem('vfa_config_v1');
+            return saved ? { ...DEFAULTS, ...JSON.parse(saved) } : { ...DEFAULTS };
+        } catch(e) {
+            return { ...DEFAULTS };
+        }
     }
-  }
 
-  let CFG = loadConfig();
-  let kcount = parseInt(localStorage.getItem('vfa_kcount') || '0', 10);
-  let isRunning = localStorage.getItem('vfa_enabled') !== 'false';
-  let loopTimer = null;
-  let settingsOpen = false;
-  let noMobSearchStart = null;
+    let CFG = loadConfig();
+    let kcount = parseInt(localStorage.getItem('vfa_kcount') || '0', 10);
+    let isRunning = localStorage.getItem('vfa_enabled') !== 'false';
+    let loopTimer = null;
+    let settingsOpen = false;
+    let noMobSearchStart = null;
 
-  function parseNum(str) {
-    if (!str) return 0;
-    const cleaned = str.replace(/,/g, '').trim().match(/\d+/);
-    return cleaned ? parseInt(cleaned[0], 10) : 0;
-  }
+    function parseNum(str) {
+        if (!str) return 0;
+        const cleaned = str.replace(/,/g, '').trim().match(/\d+/);
+        return cleaned ? parseInt(cleaned[0], 10) : 0;
+    }
 
-  function getActiveMobNames() {
-    return [CFG.monsterName, CFG.monsterName2, CFG.monsterName3]
-      .map(s => (s || '').trim())
-      .filter(Boolean);
-  }
+    function getActiveMobNames() {
+        return [CFG.monsterName, CFG.monsterName2, CFG.monsterName3]
+            .map(s => (s || '').trim())
+            .filter(Boolean);
+    }
 
-  // --- FLOATING HUD & SETTINGS INTERFACE ---
-  function buildHUD() {
-    if (!true || document.getElementById('vfa-hud-root')) return;
+    // --- FLOATING HUD & SETTINGS INTERFACE ---
+    function buildHUD() {
+        if (!true || document.getElementById('vfa-hud-root')) return;
 
-    const root = document.createElement('div');
-    root.id = 'vfa-hud-root';
-    root.style.cssText = 'position:fixed;bottom:12px;right:12px;z-index:999999;font-family:system-ui,-apple-system,sans-serif;font-size:12px;color:#f8fafc;';
+        const root = document.createElement('div');
+        root.id = 'vfa-hud-root';
+        root.style.cssText = 'position:fixed;bottom:12px;right:12px;z-index:999999;font-family:system-ui,-apple-system,sans-serif;font-size:12px;color:#f8fafc;';
 
-    root.innerHTML = `
+        root.innerHTML = `
       <div id="vfa-hud-card" style="background:#0f172a;border:1px solid #0284c7;border-radius:10px;padding:10px 14px;box-shadow:0 8px 24px rgba(0,0,0,0.6);width:280px;transition:all 0.2s ease;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;border-bottom:1px solid #1e293b;padding-bottom:6px;">
           <div style="display:flex;align-items:center;gap:6px;">
@@ -146,281 +146,326 @@
       </div>
     `;
 
-    document.body.appendChild(root);
+        document.body.appendChild(root);
 
-    // Event Bindings
-    document.getElementById('vfa-cfg-toggle').onclick = () => {
-      settingsOpen = !settingsOpen;
-      document.getElementById('vfa-settings-panel').style.display = settingsOpen ? 'block' : 'none';
-    };
+        // Event Bindings
+        document.getElementById('vfa-cfg-toggle').onclick = () => {
+            settingsOpen = !settingsOpen;
+            document.getElementById('vfa-settings-panel').style.display = settingsOpen ? 'block' : 'none';
+        };
 
-    document.getElementById('vfa-btn-toggle').onclick = () => {
-      isRunning = !isRunning;
-      localStorage.setItem('vfa_enabled', isRunning ? 'true' : 'false');
-      updateHUDState();
-      if (isRunning) runLoop(); else clearTimeout(loopTimer);
-    };
+        document.getElementById('vfa-btn-toggle').onclick = () => {
+            isRunning = !isRunning;
+            localStorage.setItem('vfa_enabled', isRunning ? 'true' : 'false');
+            updateHUDState();
+            if (isRunning) runLoop(); else clearTimeout(loopTimer);
+        };
 
-    document.getElementById('vfa-btn-reset').onclick = () => {
-      kcount = 0;
-      localStorage.setItem('vfa_kcount', '0');
-      document.getElementById('vfa-txt-kcount').textContent = '0/' + CFG.maxKCount;
-    };
+        document.getElementById('vfa-btn-reset').onclick = () => {
+            kcount = 0;
+            localStorage.setItem('vfa_kcount', '0');
+            document.getElementById('vfa-txt-kcount').textContent = '0/' + CFG.maxKCount;
+        };
 
-    document.getElementById('vfa-save-btn').onclick = () => {
-      CFG.monsterName = document.getElementById('vfa-in-monster1').value.trim();
-      CFG.monsterName2 = document.getElementById('vfa-in-monster2').value.trim();
-      CFG.monsterName3 = document.getElementById('vfa-in-monster3').value.trim();
-      CFG.targetDmg = parseInt(document.getElementById('vfa-in-dmg').value, 10) || DEFAULTS.targetDmg;
-      CFG.minStamina = parseInt(document.getElementById('vfa-in-stam').value, 10) || DEFAULTS.minStamina;
-      CFG.maxKCount = parseInt(document.getElementById('vfa-in-maxk').value, 10) || DEFAULTS.maxKCount;
-      CFG.delayMs = parseInt(document.getElementById('vfa-in-delay').value, 10) || DEFAULTS.delayMs;
-      CFG.autoRefreshSec = parseInt(document.getElementById('vfa-in-refresh').value, 10) || DEFAULTS.autoRefreshSec;
+        document.getElementById('vfa-save-btn').onclick = () => {
+            CFG.monsterName = document.getElementById('vfa-in-monster1').value.trim();
+            CFG.monsterName2 = document.getElementById('vfa-in-monster2').value.trim();
+            CFG.monsterName3 = document.getElementById('vfa-in-monster3').value.trim();
+            CFG.targetDmg = parseInt(document.getElementById('vfa-in-dmg').value, 10) || DEFAULTS.targetDmg;
+            CFG.minStamina = parseInt(document.getElementById('vfa-in-stam').value, 10) || DEFAULTS.minStamina;
+            CFG.maxKCount = parseInt(document.getElementById('vfa-in-maxk').value, 10) || DEFAULTS.maxKCount;
+            CFG.delayMs = parseInt(document.getElementById('vfa-in-delay').value, 10) || DEFAULTS.delayMs;
+            CFG.autoRefreshSec = parseInt(document.getElementById('vfa-in-refresh').value, 10) || DEFAULTS.autoRefreshSec;
 
-      localStorage.setItem('vfa_config_v1', JSON.stringify(CFG));
-      log('Parameters Saved!');
-      document.getElementById('vfa-txt-kcount').textContent = kcount + '/' + CFG.maxKCount;
-      settingsOpen = false;
-      document.getElementById('vfa-settings-panel').style.display = 'none';
-    };
-  }
-
-  function updateHUDState() {
-    const badge = document.getElementById('vfa-status-badge');
-    const toggleBtn = document.getElementById('vfa-btn-toggle');
-    if (badge) {
-      badge.textContent = isRunning ? 'ACTIVE' : 'PAUSED';
-      badge.style.background = isRunning ? '#16a34a' : '#dc2626';
-    }
-    if (toggleBtn) {
-      toggleBtn.textContent = isRunning ? 'Pause Script' : 'Start Script';
-      toggleBtn.style.background = isRunning ? '#dc2626' : '#16a34a';
-    }
-  }
-
-  function log(msg, staminaVal) {
-    if (!true) return;
-    buildHUD();
-    const stepEl = document.getElementById('vfa-txt-step');
-    if (stepEl) stepEl.textContent = msg;
-    if (staminaVal !== undefined) {
-      const stamEl = document.getElementById('vfa-txt-stamina');
-      if (stamEl) stamEl.textContent = staminaVal;
-    }
-  }
-
-  // --- AUTOMATION ENGINE LOOP ---
-  function runLoop() {
-    if (!isRunning) return;
-    if (kcount >= CFG.maxKCount) {
-      log('Max K-Count Reached (' + kcount + '/' + CFG.maxKCount + ')');
-      return;
+            localStorage.setItem('vfa_config_v1', JSON.stringify(CFG));
+            log('Parameters Saved!');
+            document.getElementById('vfa-txt-kcount').textContent = kcount + '/' + CFG.maxKCount;
+            settingsOpen = false;
+            document.getElementById('vfa-settings-panel').style.display = 'none';
+        };
     }
 
-    if (!location.href.includes('battle.php')) {
-      sessionStorage.removeItem('vfa_last_dmg');
-      sessionStorage.removeItem('vfa_unchanged_count');
-      sessionStorage.removeItem('vfa_stuck_refreshed');
-
-      // 1. Check Stamina
-      const stamEl = document.getElementById('stamina_span');
-      const currentStamina = stamEl ? parseNum(stamEl.textContent) : 0;
-      log('Searching target...', currentStamina);
-
-      if (currentStamina < CFG.minStamina) {
-        log('Low Stamina (' + currentStamina + ' < ' + CFG.minStamina + '). Waiting...', currentStamina);
-        noMobSearchStart = null;
-        loopTimer = setTimeout(runLoop, 8000);
-        return;
-      }
-
-      // 2. Locate Target Monster Card
-      const activeTargets = getActiveMobNames();
-      const h3s = document.getElementsByTagName('h3');
-      let targetCard = null;
-
-      for (const targetName of activeTargets) {
-        if (targetCard) break;
-
-        for (let i = 0; i < h3s.length; i++) {
-          const h3 = h3s[i];
-          if (h3.textContent.toLowerCase().includes(targetName.toLowerCase())) {
-            let card = h3.parentElement;
-            while (card && !card.querySelector('.stat-value') && card !== document.body) {
-              card = card.parentElement;
-            }
-            if (!card) continue;
-
-            // Check if Mob is DEAD (span.chip with 'DEAD' or text containing DEAD)
-            const isDead = h3.innerHTML.includes('DEAD') ||
-                           card.innerHTML.includes('DEAD') ||
-                           Array.from(card.querySelectorAll('.chip, span')).some(s => s.textContent.trim().toUpperCase() === 'DEAD');
-
-            if (isDead) {
-              log('Skipping DEAD mob: ' + targetName);
-              continue; // Skip dead mob and check next card
-            }
-
-            if (card.querySelector('.continue-btn') || card.textContent.includes('Continue the Battle')) {
-              continue;
-            }
-
-            const hpEl = card.querySelector('.stat-value');
-            const monsterHp = hpEl ? parseNum(hpEl.textContent.split('/')[0]) : 0;
-
-            if (monsterHp > CFG.minHp) {
-              targetCard = card;
-              break;
-            }
-          }
+    function updateHUDState() {
+        const badge = document.getElementById('vfa-status-badge');
+        const toggleBtn = document.getElementById('vfa-btn-toggle');
+        if (badge) {
+            badge.textContent = isRunning ? 'ACTIVE' : 'PAUSED';
+            badge.style.background = isRunning ? '#16a34a' : '#dc2626';
         }
-      }
-
-      if (targetCard) {
-        noMobSearchStart = null; // Found target! Reset no-mob timer
-        const joinBtn = targetCard.querySelector('.join-btn') || targetCard.querySelector('button');
-        if (joinBtn) {
-          log('Joining Battle...');
-          const currentUrl = location.href;
-          joinBtn.click();
-          setTimeout(() => {
-            if (location.href === currentUrl) location.reload();
-          }, CFG.joinTimeout);
-          return;
+        if (toggleBtn) {
+            toggleBtn.textContent = isRunning ? 'Pause Script' : 'Start Script';
+            toggleBtn.style.background = isRunning ? '#dc2626' : '#16a34a';
         }
-      }
+    }
 
-      // 2.5 No Matching Live Mob Found -> Check 20-second Refresh Timeout
-      if (!noMobSearchStart) {
-        noMobSearchStart = Date.now();
-      }
+    function log(msg, staminaVal) {
+        if (!true) return;
+        buildHUD();
+        const stepEl = document.getElementById('vfa-txt-step');
+        if (stepEl) stepEl.textContent = msg;
+        if (staminaVal !== undefined) {
+            const stamEl = document.getElementById('vfa-txt-stamina');
+            if (stamEl) stamEl.textContent = staminaVal;
+        }
+    }
 
-      const elapsedSec = Math.floor((Date.now() - noMobSearchStart) / 1000);
-      const refreshLimit = CFG.autoRefreshSec || 20;
+    // --- AUTOMATION ENGINE LOOP ---
+    function runLoop() {
+        if (!isRunning) return;
+        if (kcount >= CFG.maxKCount) {
+            log('Max K-Count Reached (' + kcount + '/' + CFG.maxKCount + ')');
+            return;
+        }
 
-      if (elapsedSec >= refreshLimit) {
-        log('No mob found for ' + elapsedSec + 's! Refreshing page...');
-        noMobSearchStart = null;
-        setTimeout(() => location.reload(), 400);
-        return;
-      }
+        if (!location.href.includes('battle.php')) {
+            sessionStorage.removeItem('vfa_last_dmg');
+            sessionStorage.removeItem('vfa_unchanged_count');
+            sessionStorage.removeItem('vfa_stuck_refreshed');
 
-      log('Searching target (' + elapsedSec + 's/' + refreshLimit + 's)...', currentStamina);
-      loopTimer = setTimeout(runLoop, 3500);
+            // 1. Check Stamina
+            const stamEl = document.getElementById('stamina_span');
+            const currentStamina = stamEl ? parseNum(stamEl.textContent) : 0;
+            log('Searching target...', currentStamina);
 
+            if (currentStamina < CFG.minStamina) {
+                log('Low Stamina (' + currentStamina + ' < ' + CFG.minStamina + '). Waiting...', currentStamina);
+                noMobSearchStart = null;
+                loopTimer = setTimeout(runLoop, 8000);
+                return;
+            }
+
+            // 2. Locate Target Monster Card
+            const activeTargets = getActiveMobNames();
+            const h3s = document.getElementsByTagName('h3');
+            let targetCard = null;
+
+            for (const targetName of activeTargets) {
+                if (targetCard) break;
+
+                for (let i = 0; i < h3s.length; i++) {
+                    const h3 = h3s[i];
+                    if (h3.textContent.toLowerCase().includes(targetName.toLowerCase())) {
+                        let card = h3.parentElement;
+                        while (card && !card.querySelector('.stat-value') && card !== document.body) {
+                            card = card.parentElement;
+                        }
+                        if (!card) continue;
+
+                        // Check if Mob is DEAD (span.chip with 'DEAD' or text containing DEAD)
+                        const isDead = h3.innerHTML.includes('DEAD') ||
+                              card.innerHTML.includes('DEAD') ||
+                              Array.from(card.querySelectorAll('.chip, span')).some(s => s.textContent.trim().toUpperCase() === 'DEAD');
+
+                        if (isDead) {
+                            log('Skipping DEAD mob: ' + targetName);
+                            continue; // Skip dead mob and check next card
+                        }
+
+                        if (card.querySelector('.continue-btn') || card.textContent.includes('Continue the Battle')) {
+                            continue;
+                        }
+
+                        const hpEl = card.querySelector('.stat-value');
+                        const monsterHp = hpEl ? parseNum(hpEl.textContent.split('/')[0]) : 0;
+
+                        if (monsterHp > CFG.minHp) {
+                            targetCard = card;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (targetCard) {
+                noMobSearchStart = null; // Found target! Reset no-mob timer
+                const joinBtn = targetCard.querySelector('.join-btn') || targetCard.querySelector('button');
+                if (joinBtn) {
+                    log('Joining Battle...');
+                    const currentUrl = location.href;
+                    joinBtn.click();
+                    setTimeout(() => {
+                        if (location.href === currentUrl) location.reload();
+                    }, CFG.joinTimeout);
+                    return;
+                }
+            }
+
+            // 2.5 No Matching Live Mob Found -> Check 20-second Refresh Timeout
+            if (!noMobSearchStart) {
+                noMobSearchStart = Date.now();
+            }
+
+            const elapsedSec = Math.floor((Date.now() - noMobSearchStart) / 1000);
+            const refreshLimit = CFG.autoRefreshSec || 20;
+
+            if (elapsedSec >= refreshLimit) {
+                log('No mob found for ' + elapsedSec + 's! Refreshing page...');
+                noMobSearchStart = null;
+                setTimeout(() => location.reload(), 400);
+                return;
+            }
+
+            log('Searching target (' + elapsedSec + 's/' + refreshLimit + 's)...', currentStamina);
+            loopTimer = setTimeout(runLoop, 3500);
+
+        } else {
+            // 3. Battle Page Logic
+            // Check if Mob is DEAD on battle page
+            const isDeadOnBattle = document.body.innerHTML.includes('>DEAD<') ||
+                  Array.from(document.querySelectorAll('.chip, span')).some(s => s.textContent.trim().toUpperCase() === 'DEAD');
+
+            if (isDeadOnBattle) {
+                log('Mob is DEAD! Going back to event...');
+                sessionStorage.removeItem('vfa_last_dmg');
+                sessionStorage.removeItem('vfa_unchanged_count');
+                sessionStorage.removeItem('vfa_stuck_refreshed');
+                const backBtn = document.querySelector('a[href*="active_wave.php"]') || Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('Back to event'));
+                if (backBtn) {
+                    setTimeout(() => backBtn.click(), 400);
+                } else {
+                    setTimeout(() => history.back(), 400);
+                }
+                return;
+            }
+
+            const dmgEl = document.getElementById('yourDamageValue');
+            const currentDamage = dmgEl ? parseNum(dmgEl.textContent) : 0;
+
+            // Track 3 unchanged attacks to handle frozen or dead mob desync
+            let lastDmg = parseInt(sessionStorage.getItem('vfa_last_dmg') || '-1', 10);
+            let unchangedCount = parseInt(sessionStorage.getItem('vfa_unchanged_count') || '0', 10);
+
+            if (lastDmg !== -1 && currentDamage === lastDmg) {
+                unchangedCount++;
+            } else {
+                unchangedCount = 0;
+            }
+
+            sessionStorage.setItem('vfa_last_dmg', currentDamage.toString());
+            sessionStorage.setItem('vfa_unchanged_count', unchangedCount.toString());
+
+            if (unchangedCount >= 3) {
+                log('Damage unchanged for 3 attacks! Refreshing page to check if mob is dead...');
+                sessionStorage.setItem('vfa_unchanged_count', '0');
+
+                if (sessionStorage.getItem('vfa_stuck_refreshed') === 'true') {
+                    sessionStorage.removeItem('vfa_stuck_refreshed');
+                    log('Mob still unresponsive after refresh. Returning to event...');
+                    const backBtn = document.querySelector('a[href*="active_wave.php"]') || Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('Back to event'));
+                    if (backBtn) {
+                        setTimeout(() => backBtn.click(), 400);
+                    } else {
+                        setTimeout(() => history.back(), 400);
+                    }
+                    return;
+                }
+
+                sessionStorage.setItem('vfa_stuck_refreshed', 'true');
+                setTimeout(() => location.reload(), 400);
+                return;
+            }
+
+            if (currentDamage < CFG.targetDmg) {
+                const remDmg = CFG.targetDmg - currentDamage;
+                const buttons = Array.from(document.querySelectorAll('.attack-btn, button'));
+                const legendaryBtn = buttons.find(b => b.textContent.includes('Legendary Slash') && !b.disabled);
+                const ultimateBtn = buttons.find(b => b.textContent.includes('Ultimate Slash') && !b.disabled);
+                const heroicBtn = buttons.find(b => b.textContent.includes('Heroic Slash') && !b.disabled);
+                const powerBtn = buttons.find(b => b.textContent.includes('Power Slash') && !b.disabled);
+                const slashBtn = buttons.find(b => b.textContent.includes('Slash') && !b.textContent.includes('Power') && !b.textContent.includes('Heroic') && !b.textContent.includes('Ultimate') && !b.textContent.includes('Legendary') && !b.disabled);
+
+                let attackBtn = null;
+                let chosenType = 'Slash';
+
+                // Stamina Optimization Strategy:
+                // If remaining damage needed <= 7 * slashDmg (e.g. ~190k DMG remaining),
+                // 1-3 regular Slashes finish the target with minimal stamina and zero overkill waste!
+                if (remDmg > CFG.slashDmg * 192) {
+                    // Massive remaining damage: use Legendary Slash
+                    attackBtn = legendaryBtn || ultimateBtn || heroicBtn || powerBtn || slashBtn;
+                    chosenType =
+                        attackBtn === legendaryBtn ? 'Legendary Slash' :
+                    attackBtn === ultimateBtn ? 'Ultimate Slash' :
+                    attackBtn === heroicBtn ? 'Heroic Slash' :
+                    attackBtn === powerBtn ? 'Power Slash' :
+                    'Slash';
+
+                } else if (remDmg > CFG.slashDmg * 92) {
+                    // Very large remaining damage: use Ultimate Slash
+                    attackBtn = ultimateBtn || legendaryBtn || heroicBtn || powerBtn || slashBtn;
+                    chosenType =
+                        attackBtn === ultimateBtn ? 'Ultimate Slash' :
+                    attackBtn === legendaryBtn ? 'Legendary Slash' :
+                    attackBtn === heroicBtn ? 'Heroic Slash' :
+                    attackBtn === powerBtn ? 'Power Slash' :
+                    'Slash';
+
+                } else if (remDmg > CFG.slashDmg * 43) {
+                    // Large remaining damage: use Heroic Slash
+                    attackBtn = heroicBtn || ultimateBtn || legendaryBtn || powerBtn || slashBtn;
+                    chosenType =
+                        attackBtn === heroicBtn ? 'Heroic Slash' :
+                    attackBtn === ultimateBtn ? 'Ultimate Slash' :
+                    attackBtn === legendaryBtn ? 'Legendary Slash' :
+                    attackBtn === powerBtn ? 'Power Slash' :
+                    'Slash';
+
+                } else if (remDmg > CFG.slashDmg * 7) {
+                    // Medium remaining damage: use Power Slash
+                    attackBtn = powerBtn || heroicBtn || ultimateBtn || legendaryBtn || slashBtn;
+                    chosenType =
+                        attackBtn === powerBtn ? 'Power Slash' :
+                    attackBtn === heroicBtn ? 'Heroic Slash' :
+                    attackBtn === ultimateBtn ? 'Ultimate Slash' :
+                    attackBtn === legendaryBtn ? 'Legendary Slash' :
+                    'Slash';
+
+                } else {
+                    // Small remaining damage: save stamina with Slash
+                    attackBtn = slashBtn || powerBtn || heroicBtn || ultimateBtn || legendaryBtn;
+                    chosenType =
+                        attackBtn === slashBtn ? 'Slash (Stamina Saved)' :
+                    attackBtn === powerBtn ? 'Power Slash' :
+                    attackBtn === heroicBtn ? 'Heroic Slash' :
+                    attackBtn === ultimateBtn ? 'Ultimate Slash' :
+                    'Legendary Slash';
+                }
+
+                log('Attacking [' + chosenType + '] (' + currentDamage.toLocaleString() + ' / ' + CFG.targetDmg.toLocaleString() + ')');
+
+                if (attackBtn) {
+                    attackBtn.click();
+                    loopTimer = setTimeout(runLoop, CFG.delayMs);
+                } else {
+                    loopTimer = setTimeout(runLoop, 1000);
+                }
+            } else {
+                // Goal Reached
+                kcount++;
+                localStorage.setItem('vfa_kcount', kcount.toString());
+                sessionStorage.removeItem('vfa_last_dmg');
+                sessionStorage.removeItem('vfa_unchanged_count');
+                sessionStorage.removeItem('vfa_stuck_refreshed');
+                log('Battle Complete! K-Count: ' + kcount);
+
+                const backBtn = document.querySelector('a[href*="active_wave.php"]') || Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('Back to event'));
+                if (backBtn) {
+                    setTimeout(() => backBtn.click(), 600);
+                } else {
+                    setTimeout(() => history.back(), 600);
+                }
+            }
+        }
+    }
+
+    // Auto-init on page ready
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        buildHUD();
+        if (isRunning) setTimeout(runLoop, 500);
     } else {
-      // 3. Battle Page Logic
-      // Check if Mob is DEAD on battle page
-      const isDeadOnBattle = document.body.innerHTML.includes('>DEAD<') ||
-                             Array.from(document.querySelectorAll('.chip, span')).some(s => s.textContent.trim().toUpperCase() === 'DEAD');
-
-      if (isDeadOnBattle) {
-        log('Mob is DEAD! Going back to event...');
-        sessionStorage.removeItem('vfa_last_dmg');
-        sessionStorage.removeItem('vfa_unchanged_count');
-        sessionStorage.removeItem('vfa_stuck_refreshed');
-        const backBtn = document.querySelector('a[href*="active_wave.php"]') || Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('Back to event'));
-        if (backBtn) {
-          setTimeout(() => backBtn.click(), 400);
-        } else {
-          setTimeout(() => history.back(), 400);
-        }
-        return;
-      }
-
-      const dmgEl = document.getElementById('yourDamageValue');
-      const currentDamage = dmgEl ? parseNum(dmgEl.textContent) : 0;
-
-      // Track 3 unchanged attacks to handle frozen or dead mob desync
-      let lastDmg = parseInt(sessionStorage.getItem('vfa_last_dmg') || '-1', 10);
-      let unchangedCount = parseInt(sessionStorage.getItem('vfa_unchanged_count') || '0', 10);
-
-      if (lastDmg !== -1 && currentDamage === lastDmg) {
-        unchangedCount++;
-      } else {
-        unchangedCount = 0;
-      }
-
-      sessionStorage.setItem('vfa_last_dmg', currentDamage.toString());
-      sessionStorage.setItem('vfa_unchanged_count', unchangedCount.toString());
-
-      if (unchangedCount >= 3) {
-        log('Damage unchanged for 3 attacks! Refreshing page to check if mob is dead...');
-        sessionStorage.setItem('vfa_unchanged_count', '0');
-
-        if (sessionStorage.getItem('vfa_stuck_refreshed') === 'true') {
-          sessionStorage.removeItem('vfa_stuck_refreshed');
-          log('Mob still unresponsive after refresh. Returning to event...');
-          const backBtn = document.querySelector('a[href*="active_wave.php"]') || Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('Back to event'));
-          if (backBtn) {
-            setTimeout(() => backBtn.click(), 400);
-          } else {
-            setTimeout(() => history.back(), 400);
-          }
-          return;
-        }
-
-        sessionStorage.setItem('vfa_stuck_refreshed', 'true');
-        setTimeout(() => location.reload(), 400);
-        return;
-      }
-
-      if (currentDamage < CFG.targetDmg) {
-        const remDmg = CFG.targetDmg - currentDamage;
-        const buttons = Array.from(document.querySelectorAll('.attack-btn, button'));
-        const powerBtn = buttons.find(b => b.textContent.includes('Power Slash') && !b.disabled);
-        const slashBtn = buttons.find(b => b.textContent.includes('Slash') && !b.textContent.includes('Power') && !b.disabled);
-
-        let attackBtn = null;
-        let chosenType = 'Slash';
-
-        // Stamina Optimization Strategy:
-        // If remaining damage needed <= 7 * slashDmg (e.g. ~190k DMG remaining),
-        // 1-3 regular Slashes finish the target with minimal stamina and zero overkill waste!
-        if (remDmg <= CFG.slashDmg * 7) {
-          attackBtn = slashBtn || powerBtn;
-          chosenType = attackBtn === slashBtn ? 'Slash (Stamina Saved)' : 'Power Slash';
-        } else {
-          // For large remaining damage gaps, use Power Slash for high efficiency
-          attackBtn = powerBtn || slashBtn;
-          chosenType = attackBtn === powerBtn ? 'Power Slash' : 'Slash';
-        }
-
-        log('Attacking [' + chosenType + '] (' + currentDamage.toLocaleString() + ' / ' + CFG.targetDmg.toLocaleString() + ')');
-
-        if (attackBtn) {
-          attackBtn.click();
-          loopTimer = setTimeout(runLoop, CFG.delayMs);
-        } else {
-          loopTimer = setTimeout(runLoop, 1000);
-        }
-      } else {
-        // Goal Reached
-        kcount++;
-        localStorage.setItem('vfa_kcount', kcount.toString());
-        sessionStorage.removeItem('vfa_last_dmg');
-        sessionStorage.removeItem('vfa_unchanged_count');
-        sessionStorage.removeItem('vfa_stuck_refreshed');
-        log('Battle Complete! K-Count: ' + kcount);
-
-        const backBtn = document.querySelector('a[href*="active_wave.php"]') || Array.from(document.querySelectorAll('a')).find(a => a.textContent.includes('Back to event'));
-        if (backBtn) {
-          setTimeout(() => backBtn.click(), 600);
-        } else {
-          setTimeout(() => history.back(), 600);
-        }
-      }
+        window.addEventListener('DOMContentLoaded', () => {
+            buildHUD();
+            if (isRunning) setTimeout(runLoop, 500);
+        });
     }
-  }
-
-  // Auto-init on page ready
-  if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    buildHUD();
-    if (isRunning) setTimeout(runLoop, 500);
-  } else {
-    window.addEventListener('DOMContentLoaded', () => {
-      buildHUD();
-      if (isRunning) setTimeout(runLoop, 500);
-    });
-  }
 })();

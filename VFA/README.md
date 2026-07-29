@@ -92,5 +92,8 @@ The generated script includes a standard compliant Userscript metadata block tha
 - Click the **Reset K** button on the floating HUD overlay, or execute `localStorage.setItem('vfa_kcount', '0')` in your browser console.
 
 #### Q: The script is doing extra damage then required?
-- Change the **Default Damage Value** in script. See, **How to change Damage Value**
+- Click the Gear icon (⚙️) on the floating vfa automate HUD on your game screen.
+- Find the Slash DMG input field under Battle Parameters.
+- Type your updated Slash damage value.
+- Click Save Parameters. The HUD will update slashDmg and save it.
 

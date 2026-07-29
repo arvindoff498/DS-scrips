@@ -20,6 +20,11 @@
     monsterName: "Black Banner Footsoldier",
     monsterName2: "Feastborn Ear-Snatcher",
     monsterName3: "Dread Knight",
+    monsterName4: "",
+    monsterName5: "",
+    monsterName6: "",
+    monsterName7: "",
+    monsterName8: "",
     minHp: 10000000,
     targetDmg: 3000000,
     delayMs: 2000,
@@ -53,7 +58,10 @@
   }
 
   function getActiveMobNames() {
-    return [CFG.monsterName, CFG.monsterName2, CFG.monsterName3]
+    return [
+      CFG.monsterName, CFG.monsterName2, CFG.monsterName3, CFG.monsterName4,
+      CFG.monsterName5, CFG.monsterName6, CFG.monsterName7, CFG.monsterName8
+    ]
       .map(s => (s || '').trim())
       .filter(Boolean);
   }
@@ -96,8 +104,8 @@
         </div>
 
         <!-- SETTINGS PANEL (TOGGLEABLE) -->
-        <div id="vfa-settings-panel" style="display:${settingsOpen ? 'block' : 'none'};margin-bottom:8px;border-top:1px solid #334155;border-bottom:1px solid #334155;padding:8px 0;">
-          <div style="font-weight:bold;color:#a855f7;margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Target Mobs (Up to 3)</div>
+        <div id="vfa-settings-panel" style="display:${settingsOpen ? 'block' : 'none'};margin-bottom:8px;border-top:1px solid #334155;border-bottom:1px solid #334155;padding:8px 0;max-height:260px;overflow-y:auto;">
+          <div style="font-weight:bold;color:#a855f7;margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Target Mobs (Up to 8)</div>
           
           <div style="margin-bottom:4px;">
             <label style="display:block;font-size:10px;color:#38bdf8;">Mob 1 (Primary):</label>
@@ -109,9 +117,34 @@
             <input type="text" id="vfa-in-monster2" value="${CFG.monsterName2 || ''}" placeholder="Secondary Mob (Optional)" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#f43f5e;padding:3px 6px;border-radius:4px;font-size:11px;" />
           </div>
 
-          <div style="margin-bottom:6px;">
+          <div style="margin-bottom:4px;">
             <label style="display:block;font-size:10px;color:#cbd5e1;">Mob 3 (Tertiary):</label>
             <input type="text" id="vfa-in-monster3" value="${CFG.monsterName3 || ''}" placeholder="Tertiary Mob (Optional)" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#a855f7;padding:3px 6px;border-radius:4px;font-size:11px;" />
+          </div>
+
+          <div style="margin-bottom:4px;">
+            <label style="display:block;font-size:10px;color:#cbd5e1;">Mob 4 (Optional):</label>
+            <input type="text" id="vfa-in-monster4" value="${CFG.monsterName4 || ''}" placeholder="Mob 4 (Optional)" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#cbd5e1;padding:3px 6px;border-radius:4px;font-size:11px;" />
+          </div>
+
+          <div style="margin-bottom:4px;">
+            <label style="display:block;font-size:10px;color:#cbd5e1;">Mob 5 (Optional):</label>
+            <input type="text" id="vfa-in-monster5" value="${CFG.monsterName5 || ''}" placeholder="Mob 5 (Optional)" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#cbd5e1;padding:3px 6px;border-radius:4px;font-size:11px;" />
+          </div>
+
+          <div style="margin-bottom:4px;">
+            <label style="display:block;font-size:10px;color:#cbd5e1;">Mob 6 (Optional):</label>
+            <input type="text" id="vfa-in-monster6" value="${CFG.monsterName6 || ''}" placeholder="Mob 6 (Optional)" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#cbd5e1;padding:3px 6px;border-radius:4px;font-size:11px;" />
+          </div>
+
+          <div style="margin-bottom:4px;">
+            <label style="display:block;font-size:10px;color:#cbd5e1;">Mob 7 (Optional):</label>
+            <input type="text" id="vfa-in-monster7" value="${CFG.monsterName7 || ''}" placeholder="Mob 7 (Optional)" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#cbd5e1;padding:3px 6px;border-radius:4px;font-size:11px;" />
+          </div>
+
+          <div style="margin-bottom:6px;">
+            <label style="display:block;font-size:10px;color:#cbd5e1;">Mob 8 (Optional):</label>
+            <input type="text" id="vfa-in-monster8" value="${CFG.monsterName8 || ''}" placeholder="Mob 8 (Optional)" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#cbd5e1;padding:3px 6px;border-radius:4px;font-size:11px;" />
           </div>
 
           <div style="font-weight:bold;color:#38bdf8;margin:8px 0 4px 0;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Battle Parameters</div>
@@ -138,9 +171,15 @@
             </div>
           </div>
 
-          <div style="margin-bottom:6px;">
-            <label style="display:block;font-size:10px;color:#fbbf24;">No-Mob Refresh (s):</label>
-            <input type="number" id="vfa-in-refresh" value="${CFG.autoRefreshSec || 20}" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#fbbf24;padding:3px 6px;border-radius:4px;font-size:11px;" />
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+            <div>
+              <label style="display:block;font-size:10px;color:#38bdf8;">Slash DMG:</label>
+              <input type="number" id="vfa-in-slashdmg" value="${CFG.slashDmg}" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#38bdf8;padding:3px 6px;border-radius:4px;font-size:11px;" />
+            </div>
+            <div>
+              <label style="display:block;font-size:10px;color:#fbbf24;">No-Mob Refresh (s):</label>
+              <input type="number" id="vfa-in-refresh" value="${CFG.autoRefreshSec || 20}" style="width:100%;box-sizing:border-box;background:#090d16;border:1px solid #334155;color:#fbbf24;padding:3px 6px;border-radius:4px;font-size:11px;" />
+            </div>
           </div>
 
           <button id="vfa-save-btn" style="width:100%;padding:4px;background:#2563eb;color:#fff;border:none;border-radius:4px;font-weight:bold;cursor:pointer;font-size:11px;">Save Parameters</button>
@@ -241,10 +280,16 @@
       CFG.monsterName = document.getElementById('vfa-in-monster1').value.trim();
       CFG.monsterName2 = document.getElementById('vfa-in-monster2').value.trim();
       CFG.monsterName3 = document.getElementById('vfa-in-monster3').value.trim();
+      CFG.monsterName4 = document.getElementById('vfa-in-monster4').value.trim();
+      CFG.monsterName5 = document.getElementById('vfa-in-monster5').value.trim();
+      CFG.monsterName6 = document.getElementById('vfa-in-monster6').value.trim();
+      CFG.monsterName7 = document.getElementById('vfa-in-monster7').value.trim();
+      CFG.monsterName8 = document.getElementById('vfa-in-monster8').value.trim();
       CFG.targetDmg = parseInt(document.getElementById('vfa-in-dmg').value, 10) || DEFAULTS.targetDmg;
       CFG.minStamina = parseInt(document.getElementById('vfa-in-stam').value, 10) || DEFAULTS.minStamina;
       CFG.maxKCount = parseInt(document.getElementById('vfa-in-maxk').value, 10) || DEFAULTS.maxKCount;
       CFG.delayMs = parseInt(document.getElementById('vfa-in-delay').value, 10) || DEFAULTS.delayMs;
+      CFG.slashDmg = parseInt(document.getElementById('vfa-in-slashdmg').value, 10) || DEFAULTS.slashDmg;
       CFG.autoRefreshSec = parseInt(document.getElementById('vfa-in-refresh').value, 10) || DEFAULTS.autoRefreshSec;
 
       localStorage.setItem('vfa_config_v1', JSON.stringify(CFG));

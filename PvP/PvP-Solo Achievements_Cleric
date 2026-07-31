@@ -219,7 +219,7 @@
                 <!-- Min Solo Tokens Threshold -->
                 <div style="margin-bottom: 12px;">
                     <label style="display:block; font-size:10px; color:#a1a1aa; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">
-                        PAUSE WHEN SOLO TOKENS REMAIN ≤
+                        PAUSE WHEN TOKENS REMAIN ≤
                     </label>
                     <input id="pvp-min-tokens-input" type="number" min="0" max="30" value="${config.minSoloTokens}" style="
                         width: 100%;
@@ -232,7 +232,7 @@
                         box-sizing: border-box;
                     " />
                     <span style="font-size: 10px; color: #71717a; display: block; margin-top: 2px;">
-                        Tokens refill +3/hr. Bot pauses when threshold hit.
+                        Bot pauses when threshold hit.
                     </span>
                 </div>
 

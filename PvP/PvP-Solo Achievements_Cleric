@@ -1,633 +1,710 @@
 // ==UserScript==
-// @name         PvP-Solo Achievements_Cleric
-// @namespace    http://tampermonkey.net/
-// @version      2026-07-09
-// @description  PvP-solo achivement complete
+// @name         PvP Auto-Battle Bot & HUD
+// @version      1.3.0
+// @description  Automated PvP solo battler for DemonicScans with 3-skill priority/rotation logic, 2s skill activation delay after enemy turn, Slash fallback (+3 tokens), Heal HP threshold, Fast Enemy Turn auto-clicker.
 // @author       Arvin
-// @match        https://demonicscans.org/*
+// @match        https://demonicscans.org/pvp.php*
+// @match        https://demonicscans.org/pvp_battle.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=demonicscans.org
-// @grant        none
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @run-at       document-end
 // ==/UserScript==
 
-// ======================================================
-// CONFIGURATION
-// ======================================================
+(function () {
+    'use strict';
 
-// Combat skill mode:
-// "powerSlash"   -> Tokens > 9: Power Slash, else Slash
-// "judgmentSeal" -> Tokens > 3: Judgment Seal, else Slash
-// "rotate"       -> Tokens > 3: Judgment Seal <-> Sanctified Breach
-const skillMode = "powerSlash";
+    // --- DEFAULT CONFIGURATION ---
+    const STORAGE_KEY = 'PVP_BOT_HUD_CONFIG_V2';
 
+    let config = {
+        enabled: false,
+        skills: ['Slash', 'Power Slash', 'Judgment Seal'], // Up to 3 skill names
+        mode: 'priority', // 'priority' or 'rotation'
+        minSoloTokens: 1, // Pause if solo tokens <= this number
+        minHealHpPercent: 80, // Trigger heal skill only if Ally HP <= 80%
+        rotationIndex: 0
+    };
 
-// Low token behavior:
-// "STOP" -> Stop completely when PvP tokens <= 5
-// "WAIT" -> Keep checking and resume automatically
-const lowTokenMode = "STOP";
+    // Known Skill Reference Database
+    const KNOWN_SKILLS = [
+        { id: '0', name: 'Slash', type: 'active', cost: 0, graceCost: 0, tokenGain: 3 },
+        { id: '-1', name: 'Power Slash', type: 'active', cost: 9, graceCost: 0 },
+        { id: '9', name: 'Judgment Seal', type: 'active', cost: 3, graceCost: 0 },
+        { id: '18', name: 'Sanctified Breach', type: 'active', cost: 3, graceCost: 0 },
+        { id: 'adv:30', name: 'Divine Barrier', type: 'active', cost: 12, graceCost: 0 },
+        { id: 'adv:32', name: 'Heaven Mercy', type: 'active', cost: 15, graceCost: 100 },
+        { id: '8', name: 'Heal', type: 'heal', cost: 5, graceCost: 0 }
+    ];
 
-
-// ======================================================
-// STATE
-// ======================================================
-
-let state = "INIT";
-// INIT            -> initial page detection
-// PVP             -> PvP token checking
-// COMBAT          -> battle logic
-// WAIT_PVP_LOAD   -> waiting after Back navigation
-// STOP            -> stopped
-
-
-// Used only for rotate mode
-// Persistent even when Slash is used
-let nextRotationSkill = "judgmentSeal";
-
-
-// Enemy speed button is clicked once per battle
-let enemySpeedActivated = false;
-
-
-// ======================================================
-// MAIN LOOP
-// ======================================================
-
-setInterval(async () => {
-
-    try {
-
-
-        // ==================================================
-        // INITIAL STATE CHECK
-        // ==================================================
-
-        if (state === "INIT") {
-
-            if (window.location.href === "https://demonicscans.org/pvp.php") {
-
-                state = "PVP";
-
-                console.log("State: PvP");
-
-            } else {
-
-                state = "COMBAT";
-
-                console.log("State: Combat");
-
+    // Load saved settings
+    function loadConfig() {
+        try {
+            const saved = (typeof GM_getValue !== 'undefined')
+                ? GM_getValue(STORAGE_KEY, null)
+                : localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const parsed = typeof saved === 'string' ? JSON.parse(saved) : saved;
+                config = { ...config, ...parsed };
             }
+        } catch (e) {
+            console.error('[PvP Bot] Failed to load config:', e);
         }
-
-        // ==================================================
-        // WAIT FOR PvP PAGE AFTER BACK
-        // ==================================================
-
-        if (state === "WAIT_PVP_LOAD") {
-
-
-            if (
-                window.location.href ===
-                "https://demonicscans.org/pvp.php"
-            ) {
-
-
-                const firstSection =
-                      document.querySelector(".section-stat-row");
-
-
-                if (firstSection) {
-
-
-                    const tokenElement =
-                          [...firstSection.querySelectorAll(".info-pill")]
-                    .find(el => el.innerText.includes("Tokens"));
-
-
-                    if (tokenElement) {
-
-
-                        console.log("PvP page loaded.");
-
-                        state = "PVP";
-
-                    }
-
-                }
-
-            }
-
-
-            return;
-
-        }
-
-
-        // ==================================================
-        // PvP STATE
-        // ==================================================
-
-        if (state === "PVP") {
-
-
-            const firstSectionStat =
-                  document.querySelector(".section-stat-row");
-
-
-            if (!firstSectionStat) {
-                return;
-            }
-
-
-            const tokenElement =
-                  [...firstSectionStat.querySelectorAll(".info-pill")]
-            .find(el => el.innerText.includes("Tokens"));
-
-
-
-            if (!tokenElement) {
-                return;
-            }
-
-
-
-            const pvpTokens = Number(
-                tokenElement.querySelector("span")?.textContent.trim()
-            );
-
-
-
-            console.log("PvP Tokens:", pvpTokens);
-
-
-
-            if (pvpTokens > 5) {
-
-
-                const findMatchBtn =
-                      document.querySelector(
-                          ".js-matchmake[data-ladder='solo']"
-                      );
-
-
-
-                if (findMatchBtn) {
-
-
-                    findMatchBtn.click();
-
-                    console.log("Clicked Find Solo Match");
-
-
-                    // wait until combat page loads
-                    const combatCheck = setInterval(() => {
-
-
-                        const attackBtn =
-                              document.getElementById("attackBtn");
-
-
-
-                        if (attackBtn) {
-
-
-                            clearInterval(combatCheck);
-
-
-                            state = "COMBAT";
-
-                            enemySpeedActivated = false;
-
-                            console.log("State: Combat");
-
-                        }
-
-
-                    }, 500);
-
-
-                }
-
-
-
-            } else {
-
-
-                console.log("PvP Tokens <= 5");
-
-
-                if (lowTokenMode === "STOP") {
-
-                    state = "STOP";
-
-                    console.log("Automation stopped.");
-
-                }
-
-
-            }
-
-
-
-            return;
-
-        }
-
-
-
-
-        // ==================================================
-        // STOP STATE
-        // ==================================================
-
-        if (state === "STOP") {
-
-            return;
-
-        }
-
-
-
-
-        // ==================================================
-        // COMBAT STATE
-        // ==================================================
-
-        if (state === "COMBAT") {
-
-
-
-            // ----------------------------------------------
-            // Check match result
-            // ----------------------------------------------
-
-            const note =
-                  document.getElementById("noteText");
-
-
-
-            if (note) {
-
-
-                const result =
-                      note.textContent.trim();
-
-
-
-                // WIN
-                if (result === "Your side won this season match.") {
-
-
-                    const continueBtn =
-                          document.getElementById("continueRewardsBtn");
-
-
-
-                    if (continueBtn) {
-
-                        continueBtn.click();
-
-                        console.log("Clicked Continue");
-
-
-                        setTimeout(() => {
-
-
-                            const backBtn =
-                                  document.querySelector(
-                                      ".back-btn[href='pvp.php']"
-                                  );
-
-
-                            if (backBtn) {
-
-                                backBtn.click();
-
-                                console.log("Clicked Back, waiting for PvP page.");
-
-                                state = "WAIT_PVP_LOAD";
-
-                                enemySpeedActivated = false;
-
-                            }
-
-
-                        }, 500);
-
-
-                    }
-
-
-                    return;
-
-                }
-
-
-
-
-                // LOSS
-                if (result === "The opposing side won this season match.") {
-
-
-                    const backBtn =
-                          document.querySelector(
-                              ".back-btn[href='pvp.php']"
-                          );
-
-
-
-                    if (backBtn) {
-
-
-                        backBtn.click();
-
-                        console.log("Clicked Back, waiting for PvP page.");
-
-                        state = "WAIT_PVP_LOAD";
-
-                        enemySpeedActivated = false;
-
-
-                    }
-
-
-                    return;
-
-                }
-
-            }
-
-
-
-
-
-            // ----------------------------------------------
-            // Enemy turn speed
-            // ----------------------------------------------
-
-            const fastEnemyBtn =
-                  document.getElementById("fastEnemyBtn");
-
-
-
-            if (
-                fastEnemyBtn &&
-                !enemySpeedActivated
-            ) {
-
-
-                if (
-                    fastEnemyBtn.textContent.trim()
-                    === "Enemy Turns 1s"
-                ) {
-
-
-                    fastEnemyBtn.click();
-
-                    console.log("Enabled Enemy Turns 1s");
-
-
-                }
-
-
-                enemySpeedActivated = true;
-
-            }
-
-
-
-
-
-
-            // ----------------------------------------------
-            // Read combat tokens
-            // ----------------------------------------------
-
-            const myTokens =
-                  Number(
-                      document.getElementById("myTokens")
-                      ?.textContent.trim() || 0
-                  );
-
-
-
-            let skillSelector = "";
-
-
-
-
-
-            // ----------------------------------------------
-            // Choose skill
-            // ----------------------------------------------
-
-            if (skillMode === "powerSlash") {
-
-
-
-                skillSelector =
-                    myTokens > 9
-                    ? '#skillsGrid .skillCard[data-skill-id="-1"]'
-                : '#skillsGrid .skillCard[data-skill-id="0"]';
-
-
-
-            }
-
-
-
-            else if (skillMode === "judgmentSeal") {
-
-
-
-                skillSelector =
-                    myTokens > 3
-                    ? '#skillsGrid .skillCard[data-skill-id="9"]'
-                : '#skillsGrid .skillCard[data-skill-id="0"]';
-
-
-
-            }
-
-
-
-            else if (skillMode === "rotate") {
-
-
-
-                if (myTokens > 3) {
-
-
-                    if (nextRotationSkill === "judgmentSeal") {
-
-
-                        skillSelector =
-                            '#skillsGrid .skillCard[data-skill-id="9"]';
-
-
-                    } else {
-
-
-                        skillSelector =
-                            '#skillsGrid .skillCard[data-skill-id="18"]';
-
-
-                    }
-
-
-
-                } else {
-
-
-                    skillSelector =
-                        '#skillsGrid .skillCard[data-skill-id="0"]';
-
-
-                }
-
-
-            }
-
-
-
-
-            const requiredSkill =
-                  document.querySelector(skillSelector);
-
-
-
-            if (!requiredSkill) {
-
-                return;
-
-            }
-
-
-
-
-
-            // ----------------------------------------------
-            // Attack button required before every skill
-            // ----------------------------------------------
-
-            const attackBtn =
-                  document.getElementById("attackBtn");
-
-
-
-            if (attackBtn) {
-
-
-                attackBtn.click();
-
-                console.log("Clicked Attack / Skills");
-
-
-            }
-
-
-
-
-            // ----------------------------------------------
-            // Wait for skill enable
-            // ----------------------------------------------
-
-            if (requiredSkill.disabled) {
-
-
-                console.log(
-                    "Waiting for:",
-                    requiredSkill.querySelector(".skillName")
-                    ?.textContent
-                );
-
-
-                return;
-
-            }
-
-
-
-
-
-            requiredSkill.click();
-
-
-
-            console.log(
-                "Used:",
-                requiredSkill.querySelector(".skillName")
-                ?.textContent
-            );
-
-
-
-
-
-            // ----------------------------------------------
-            // Update rotation state
-            // ----------------------------------------------
-
-            if (
-                skillMode === "rotate" &&
-                myTokens > 3
-            ) {
-
-
-                if (
-                    nextRotationSkill === "judgmentSeal"
-                ) {
-
-
-                    nextRotationSkill =
-                        "sanctifiedBreach";
-
-
-                } else {
-
-
-                    nextRotationSkill =
-                        "judgmentSeal";
-
-
-                }
-
-            }
-
-
-
-
-
-            // ----------------------------------------------
-            // Delay after skill
-            // ----------------------------------------------
-
-            const enemyDelay =
-                  fastEnemyBtn &&
-                  fastEnemyBtn.classList.contains("active")
-            ? 2000
-            : 4000;
-
-
-
-            await new Promise(
-                resolve => setTimeout(resolve, enemyDelay)
-            );
-
-
-
-        }
-
-
-
-    } catch (error) {
-
-
-        console.error(
-            "Script error:",
-            error
-        );
-
-
     }
 
+    function saveConfig() {
+        try {
+            if (typeof GM_setValue !== 'undefined') {
+                GM_setValue(STORAGE_KEY, JSON.stringify(config));
+            } else {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+            }
+        } catch (e) {
+            console.error('[PvP Bot] Failed to save config:', e);
+        }
+    }
 
-}, 1000);
+    loadConfig();
+
+    // State Tracking
+    let matchWonTimestamp = null;
+    let fastEnemyClickedThisMatch = false;
+    let ourTurnReadyTimestamp = null;
+    let lastButtonPressTimestamp = 0;
+    let lastDelayLogTime = 0;
+    let logHistory = [];
+
+    function pressButton(el, actionName) {
+        if (!el) return false;
+        const now = Date.now();
+        const elapsed = now - lastButtonPressTimestamp;
+        if (elapsed < 2000) {
+            if (!lastDelayLogTime || Date.now() - lastDelayLogTime > 600) {
+                addLog(`Button cooldown active (waiting 2.0s post-click: ${(elapsed / 1000).toFixed(1)}s / 2.0s)...`);
+                lastDelayLogTime = Date.now();
+            }
+            return false;
+        }
+        lastButtonPressTimestamp = Date.now();
+        if (actionName) addLog(actionName);
+        el.click();
+        return true;
+    }
+
+    function addLog(msg) {
+        const timeStr = new Date().toLocaleTimeString();
+        const fullMsg = `[${timeStr}] ${msg}`;
+        console.log(`[PvP Bot] ${msg}`);
+        logHistory.unshift(fullMsg);
+        if (logHistory.length > 20) logHistory.pop();
+
+        const logBox = document.getElementById('pvp-bot-log-terminal');
+        if (logBox) {
+            logBox.innerText = logHistory.slice(0, 6).join('\n');
+        }
+    }
+
+    // --- CREATE HUD INJECTION ---
+    function injectHUD() {
+        if (document.getElementById('pvp-bot-hud-root')) return;
+
+        const container = document.createElement('div');
+        container.id = 'pvp-bot-hud-root';
+        container.style.cssText = `
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            z-index: 999999;
+            width: 320px;
+            background: rgba(15, 23, 42, 0.95);
+            border: 2px solid rgba(249, 115, 22, 0.6);
+            border-radius: 16px;
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.7);
+            color: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 13px;
+            backdrop-filter: blur(12px);
+            user-select: none;
+            overflow: hidden;
+        `;
+
+        container.innerHTML = `
+            <div id="pvp-bot-hud-header" style="
+                background: linear-gradient(90deg, #18181b, #09090b);
+                padding: 10px 14px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                cursor: move;
+                border-bottom: 2px solid rgba(255,255,255,0.08);
+            ">
+                <div style="display: flex; align-items: center; gap: 8px; font-weight: 900; color: #f97316; font-style: italic; text-transform: uppercase;">
+                    <span>⚔️</span> PvP Automator (Arvin)
+                </div>
+                <div style="display: flex; gap: 6px;">
+                    <button id="pvp-bot-min-btn" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:14px; font-weight:bold;">_</button>
+                </div>
+            </div>
+
+            <div id="pvp-bot-hud-body" style="padding: 12px;">
+                <!-- Start / Stop Button -->
+                <button id="pvp-bot-toggle-btn" style="
+                    width: 100%;
+                    padding: 9px;
+                    border-radius: 10px;
+                    border: none;
+                    font-weight: 900;
+                    cursor: pointer;
+                    margin-bottom: 12px;
+                    transition: all 0.2s;
+                    background: ${config.enabled ? '#ef4444' : '#22c55e'};
+                    color: ${config.enabled ? '#ffffff' : '#09090b'};
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                ">
+                    ${config.enabled ? '⏹ STOP BOT' : '▶ START BOT'}
+                </button>
+
+                <!-- Skill Selection -->
+                <div style="margin-bottom: 10px;">
+                    <label style="display:block; font-size:10px; color:#a1a1aa; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">
+                        SKILL PRESETS (UP TO 3)
+                    </label>
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <select id="pvp-skill-1" class="pvp-bot-select" style="width:100%; background:#09090b; color:#f8fafc; border:1px solid #27272a; padding:5px 8px; border-radius:8px;">
+                            ${getSkillOptions(config.skills[0])}
+                        </select>
+                        <select id="pvp-skill-2" class="pvp-bot-select" style="width:100%; background:#09090b; color:#f8fafc; border:1px solid #27272a; padding:5px 8px; border-radius:8px;">
+                            ${getSkillOptions(config.skills[1])}
+                        </select>
+                        <select id="pvp-skill-3" class="pvp-bot-select" style="width:100%; background:#09090b; color:#f8fafc; border:1px solid #27272a; padding:5px 8px; border-radius:8px;">
+                            ${getSkillOptions(config.skills[2])}
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Mode Selection -->
+                <div style="margin-bottom: 10px;">
+                    <label style="display:block; font-size:10px; color:#a1a1aa; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">
+                        EXECUTION MODE
+                    </label>
+                    <select id="pvp-mode-select" style="width:100%; background:#09090b; color:#f8fafc; border:1px solid #27272a; padding:6px 8px; border-radius:8px;">
+                        <option value="priority" ${config.mode === 'priority' ? 'selected' : ''}>🎯 Priority (Try Skill 1 → 2 → 3 → Slash Fallback)</option>
+                        <option value="rotation" ${config.mode === 'rotation' ? 'selected' : ''}>🔄 Rotation (Rotate 1 → 2 → 3 → Slash Fallback)</option>
+                    </select>
+                </div>
+
+                <!-- Heal HP % Threshold -->
+                <div style="margin-bottom: 10px;">
+                    <label style="display:block; font-size:10px; color:#a1a1aa; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">
+                        HEAL SKILL TRIGGER HP THRESHOLD (%)
+                    </label>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <input id="pvp-min-heal-hp-input" type="number" min="1" max="100" value="${config.minHealHpPercent}" style="
+                            flex: 1;
+                            background: #09090b;
+                            color: #f97316;
+                            font-weight: bold;
+                            border: 1px solid #27272a;
+                            padding: 5px 8px;
+                            border-radius: 8px;
+                        " />
+                        <span style="font-size:11px; color:#71717a; font-family:monospace;">% HP</span>
+                    </div>
+                    <span style="font-size: 10px; color: #71717a; display: block; margin-top: 2px;">
+                        Heal triggers only if Ally HP ≤ this threshold.
+                    </span>
+                </div>
+
+                <!-- Min Solo Tokens Threshold -->
+                <div style="margin-bottom: 12px;">
+                    <label style="display:block; font-size:10px; color:#a1a1aa; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">
+                        PAUSE WHEN SOLO TOKENS REMAIN ≤
+                    </label>
+                    <input id="pvp-min-tokens-input" type="number" min="0" max="30" value="${config.minSoloTokens}" style="
+                        width: 100%;
+                        background: #09090b;
+                        color: #f8fafc;
+                        font-weight: bold;
+                        border: 1px solid #27272a;
+                        padding: 5px 8px;
+                        border-radius: 8px;
+                        box-sizing: border-box;
+                    " />
+                    <span style="font-size: 10px; color: #71717a; display: block; margin-top: 2px;">
+                        Tokens refill +3/hr. Bot pauses when threshold hit.
+                    </span>
+                </div>
+
+                <!-- Live Log Terminal -->
+                <div>
+                    <label style="display:block; font-size:10px; color:#a1a1aa; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">
+                        BOT TERMINAL LOGS
+                    </label>
+                    <div id="pvp-bot-log-terminal" style="
+                        background: #09090b;
+                        border: 1px solid #27272a;
+                        padding: 6px 8px;
+                        border-radius: 8px;
+                        font-family: monospace;
+                        font-size: 10px;
+                        color: #f97316;
+                        min-height: 55px;
+                        white-space: pre-wrap;
+                        word-break: break-all;
+                    ">Bot initialized...</div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(container);
+
+        // --- Draggable logic ---
+        const header = document.getElementById('pvp-bot-hud-header');
+        let isDragging = false, offsetPointerX = 0, offsetPointerY = 0;
+
+        header.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            offsetPointerX = e.clientX - container.offsetLeft;
+            offsetPointerY = e.clientY - container.offsetTop;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            container.style.left = `${e.clientX - offsetPointerX}px`;
+            container.style.top = `${e.clientY - offsetPointerY}px`;
+            container.style.right = 'auto';
+        });
+
+        document.addEventListener('mouseup', () => { isDragging = false; });
+
+        // --- Minimize button ---
+        const bodyEl = document.getElementById('pvp-bot-hud-body');
+        const minBtn = document.getElementById('pvp-bot-min-btn');
+        minBtn.addEventListener('click', () => {
+            if (bodyEl.style.display === 'none') {
+                bodyEl.style.display = 'block';
+                minBtn.innerText = '_';
+            } else {
+                bodyEl.style.display = 'none';
+                minBtn.innerText = '□';
+            }
+        });
+
+        // --- Listeners for inputs ---
+        const toggleBtn = document.getElementById('pvp-bot-toggle-btn');
+        toggleBtn.addEventListener('click', () => {
+            config.enabled = !config.enabled;
+            saveConfig();
+            toggleBtn.style.background = config.enabled ? '#ef4444' : '#22c55e';
+            toggleBtn.style.color = config.enabled ? '#ffffff' : '#09090b';
+            toggleBtn.innerText = config.enabled ? '⏹ STOP BOT' : '▶ START BOT';
+            addLog(config.enabled ? 'Bot STARTED.' : 'Bot STOPPED.');
+        });
+
+        const s1 = document.getElementById('pvp-skill-1');
+        const s2 = document.getElementById('pvp-skill-2');
+        const s3 = document.getElementById('pvp-skill-3');
+
+        function updateSkills() {
+            config.skills = [s1.value, s2.value, s3.value];
+            saveConfig();
+            addLog(`Skills updated: ${config.skills.join(', ')}`);
+        }
+
+        s1.addEventListener('change', updateSkills);
+        s2.addEventListener('change', updateSkills);
+        s3.addEventListener('change', updateSkills);
+
+        const modeSel = document.getElementById('pvp-mode-select');
+        modeSel.addEventListener('change', () => {
+            config.mode = modeSel.value;
+            saveConfig();
+            addLog(`Execution mode set to: ${config.mode}`);
+        });
+
+        const healHpInput = document.getElementById('pvp-min-heal-hp-input');
+        healHpInput.addEventListener('change', () => {
+            config.minHealHpPercent = parseInt(healHpInput.value, 10) || 80;
+            saveConfig();
+            addLog(`Heal HP Threshold set to: ${config.minHealHpPercent}%`);
+        });
+
+        const minTokInput = document.getElementById('pvp-min-tokens-input');
+        minTokInput.addEventListener('change', () => {
+            config.minSoloTokens = parseInt(minTokInput.value, 10) || 0;
+            saveConfig();
+            addLog(`Min Solo Token threshold set to: ${config.minSoloTokens}`);
+        });
+    }
+
+    function getSkillOptions(selectedVal) {
+        const noneOpt = `<option value="" ${!selectedVal ? 'selected' : ''}>-- None / Skip (Fallback to Slash) --</option>`;
+        const opts = KNOWN_SKILLS.map(sk => `
+            <option value="${sk.name}" ${sk.name === selectedVal ? 'selected' : ''}>
+                ${sk.name} (Cost ${sk.cost}${sk.graceCost ? `, Grace ${sk.graceCost}` : ''})
+            </option>
+        `).join('');
+        return noneOpt + opts;
+    }
+
+    // --- HELPER PARSERS ---
+    function getSkillTokens() {
+        const el = document.getElementById('myTokens');
+        if (!el) return 0;
+        return parseInt(el.innerText.trim(), 10) || 0;
+    }
+
+    function getGraceValue() {
+        const el = document.getElementById('advancedResourceValue');
+        if (!el) return 0;
+        const text = el.innerText.trim();
+        const parts = text.split('/');
+        return parseInt(parts[0], 10) || 0;
+    }
+
+    function getAllyHpPercent() {
+        const card = document.getElementById('bottomTeamCard');
+        if (!card) return 100;
+        const textEl = card.innerText || '';
+        // Look for pattern "293,252 / 379,000"
+        const hpMatch = textEl.match(/([0-9,]+)\s*\/\s*([0-9,]+)/);
+        if (hpMatch) {
+            const currentHp = parseInt(hpMatch[1].replace(/,/g, ''), 10);
+            const maxHp = parseInt(hpMatch[2].replace(/,/g, ''), 10);
+            if (maxHp > 0) return (currentHp / maxHp) * 100;
+        }
+        return 100;
+    }
+
+    function getSoloPvPTokens() {
+        const soloSection = Array.from(document.querySelectorAll('section.section, section')).find(sec => {
+            return !sec.classList.contains('section--party-ladder') && sec.querySelector('.js-matchmake[data-ladder="solo"]');
+        });
+        if (!soloSection) return 0;
+
+        // 1. Search child elements specifically associated with tokens or info pills
+        const tokenElements = Array.from(soloSection.querySelectorAll('.combatTokenPanel, .tokens, [class*="token"], .info-pill, span, div'));
+        for (const el of tokenElements) {
+            const t = (el.innerText || el.textContent || '').trim();
+            if (!t) continue;
+
+            // Fraction "3 / 30" in token/pill elements
+            const slashMatch = t.match(/([0-9]+)\s*\/\s*([0-9]+)/);
+            if (slashMatch && (t.toLowerCase().includes('token') || el.classList.contains('info-pill') || el.classList.contains('combatTokenPanel'))) {
+                return parseInt(slashMatch[1], 10);
+            }
+
+            // Explicit "Tokens: 3" or "Solo Tokens: 3"
+            const labelMatch = t.match(/(?:tokens?|available)\s*:?\s*([0-9]+)/i);
+            if (labelMatch) {
+                return parseInt(labelMatch[1], 10);
+            }
+        }
+
+        // 2. Search full solo section text for fraction "X / Y" (e.g., 3 / 30)
+        const fullText = (soloSection.innerText || soloSection.textContent || '').trim();
+        const fallbackSlash = fullText.match(/([0-9]+)\s*\/\s*([0-9]+)/);
+        if (fallbackSlash) {
+            return parseInt(fallbackSlash[1], 10);
+        }
+
+        // 3. Search full solo section for explicit token keyword
+        const tokenMatch = fullText.match(/(?:tokens?|available)\s*:?\s*([0-9]+)|([0-9]+)\s*(?:tokens?|available)/i);
+        if (tokenMatch) {
+            return parseInt(tokenMatch[1] || tokenMatch[2], 10);
+        }
+
+        return 0;
+    }
+
+    // --- AUTOMATION MAIN LOOP ---
+    function tick() {
+        injectHUD();
+
+        if (!config.enabled) return;
+
+        // Check page type
+        const isBattlePage = !!document.getElementById('attackBtn') || !!document.getElementById('bottomTeamCard');
+        const isPvPPage = !!document.querySelector('.js-matchmake[data-ladder="solo"]');
+
+        if (isPvPPage && !isBattlePage) {
+            handlePvPPage();
+        } else if (isBattlePage) {
+            handleBattlePage();
+        }
+    }
+
+    // 1. PVP PAGE LOGIC
+    function handlePvPPage() {
+        matchWonTimestamp = null;
+        fastEnemyClickedThisMatch = false; // Reset per match
+        const soloTokens = getSoloPvPTokens();
+
+        if (soloTokens > config.minSoloTokens) {
+            const btn = document.querySelector('.js-matchmake[data-ladder="solo"]');
+            const contBtn = document.querySelector('a.action-btn[href*="pvp_battle.php"]');
+
+            if (contBtn) {
+                pressButton(contBtn, `Solo tokens: ${soloTokens}. Resuming ongoing match...`);
+            } else if (btn) {
+                pressButton(btn, `Solo tokens: ${soloTokens} (> ${config.minSoloTokens}). Clicking Find Solo Match!`);
+            }
+        } else {
+            addLog(`Paused: Solo tokens (${soloTokens}) <= threshold (${config.minSoloTokens}). Waiting for refill (+3/hr).`);
+        }
+    }
+
+    // 2. PVP BATTLE PAGE LOGIC
+    function handleBattlePage() {
+        // Fast Enemy Button logic (click once per match)
+        if (!fastEnemyClickedThisMatch) {
+            const fastBtn = document.getElementById('fastEnemyBtn') || document.querySelector('.fastEnemyBtn');
+            if (fastBtn) {
+                const text = fastBtn.innerText || '';
+                const isAlreadyOn = text.includes('On') || fastBtn.classList.contains('active');
+                if (!isAlreadyOn) {
+                    if (pressButton(fastBtn, 'Activating Fast Enemy Turns (1s)...')) {
+                        fastEnemyClickedThisMatch = true;
+                    }
+                } else {
+                    addLog('Fast Enemy Turns (1s) already active.');
+                    fastEnemyClickedThisMatch = true;
+                }
+            }
+        }
+
+        // Check match result
+        const noteEl = document.getElementById('noteText');
+        if (noteEl) {
+            const text = noteEl.innerText.toLowerCase();
+
+            if (text.includes('opposing side won') || text.includes('lost')) {
+                addLog('Match Lost! Pressing Back button...');
+                clickBackButton();
+                return;
+            }
+
+            if (text.includes('your side won') || text.includes('won')) {
+                const continueBtn = document.getElementById('continueRewardsBtn');
+
+                if (continueBtn) {
+                    if (!continueBtn.disabled && !continueBtn.classList.contains('disabled')) {
+                        const clickedContinue = pressButton(continueBtn, 'Match Won! Clicking Continue button...');
+                        if (clickedContinue) {
+                            addLog('Match Won! Back button scheduled after 2s delay...');
+                        } else {
+                            clickBackButton();
+                        }
+                        return;
+                    } else {
+                        if (!matchWonTimestamp) {
+                            matchWonTimestamp = Date.now();
+                            addLog('Match Won! Continue button is disabled, waiting up to 5 seconds...');
+                        } else {
+                            const elapsedSec = (Date.now() - matchWonTimestamp) / 1000;
+                            if (elapsedSec > 5) {
+                                addLog(`Continue button disabled > 5s (${elapsedSec.toFixed(1)}s). Clicking Back button...`);
+                                clickBackButton();
+                                return;
+                            } else {
+                                addLog(`Waiting for Continue button... (${elapsedSec.toFixed(1)}s / 5s)`);
+                            }
+                        }
+                    }
+                } else {
+                    addLog('Match Won! No Continue button found. Clicking Back button...');
+                    clickBackButton();
+                    return;
+                }
+                return;
+            }
+        }
+
+        // Check if it's currently Enemy Turn
+        const attackBtn = document.getElementById('attackBtn');
+        const turnTimer = document.getElementById('turnTimer') || document.querySelector('.turn-status, .turnTimer');
+
+        const isEnemyTurn = (attackBtn && (attackBtn.disabled || attackBtn.classList.contains('disabled') || attackBtn.getAttribute('aria-disabled') === 'true')) ||
+                            (turnTimer && (turnTimer.innerText || turnTimer.textContent || '').toLowerCase().includes('enemy'));
+
+        if (isEnemyTurn) {
+            ourTurnReadyTimestamp = null; // Reset turn delay timer during enemy turn
+            return;
+        }
+
+        // Enforce 2-second skill activation delay after enemy turn
+        if (!ourTurnReadyTimestamp) {
+            ourTurnReadyTimestamp = Date.now();
+        }
+
+        const elapsedMs = Date.now() - ourTurnReadyTimestamp;
+        const requiredDelayMs = 2000; // 2.0s delay after enemy turn
+
+        if (elapsedMs < requiredDelayMs) {
+            if (!lastDelayLogTime || Date.now() - lastDelayLogTime > 600) {
+                addLog(`Enemy turn ended. Skill activation delay (2s wait: ${(elapsedMs / 1000).toFixed(1)}s / 2.0s)...`);
+                lastDelayLogTime = Date.now();
+            }
+            return;
+        }
+
+        // Active Battle Turn Execution
+        const currentTokens = getSkillTokens();
+        const currentGrace = getGraceValue();
+        const currentHpPercent = getAllyHpPercent();
+
+        const validSkills = config.skills.filter(s => s && s.trim() !== '');
+        let chosenSkillName = null;
+
+        if (config.mode === 'priority') {
+            for (const name of validSkills) {
+                if (hasResourcesForSkill(name, currentTokens, currentGrace, currentHpPercent)) {
+                    chosenSkillName = name;
+                    break;
+                }
+            }
+        } else {
+            const total = validSkills.length;
+            for (let i = 0; i < total; i++) {
+                const checkIdx = (config.rotationIndex + i) % total;
+                const name = validSkills[checkIdx];
+                if (hasResourcesForSkill(name, currentTokens, currentGrace, currentHpPercent)) {
+                    chosenSkillName = name;
+                    config.rotationIndex = checkIdx;
+                    saveConfig();
+                    break;
+                }
+            }
+        }
+
+        // FALLBACK LOGIC: If no selected skill can be used or no skills selected, fallback to Slash (+3 tokens, 0 cost)
+        if (!chosenSkillName) {
+            if (validSkills.length === 0) {
+                addLog('No skills selected in HUD configuration. Fallback to Slash!');
+            } else {
+                addLog(`No selected skills usable (Tokens: ${currentTokens}, Grace: ${currentGrace}, HP: ${currentHpPercent.toFixed(0)}%). Fallback to Slash!`);
+            }
+            chosenSkillName = 'Slash';
+        }
+
+        const skillDef = KNOWN_SKILLS.find(s => s.name === chosenSkillName);
+        if (!skillDef) return;
+
+        if (skillDef.type === 'heal') {
+            executeHealSkill(skillDef);
+        } else {
+            executeActiveSkill(skillDef);
+        }
+    }
+
+    function hasResourcesForSkill(skillName, tokens, grace, hpPercent) {
+        const def = KNOWN_SKILLS.find(s => s.name === skillName);
+        if (!def) return false;
+
+        // Special rule for Heal skills: check HP % threshold
+        if (def.type === 'heal') {
+            return tokens >= def.cost && hpPercent <= config.minHealHpPercent;
+        }
+
+        // Special rule for Heaven Mercy
+        if (def.name === 'Heaven Mercy') {
+            return tokens >= 15 && grace >= 100;
+        }
+
+        return tokens >= def.cost;
+    }
+
+    function executeActiveSkill(skillDef) {
+        const skillsModal = document.getElementById('skillsModal');
+        const isModalOpen = skillsModal && (skillsModal.classList.contains('show') || skillsModal.getAttribute('aria-hidden') === 'false' || getComputedStyle(skillsModal).display !== 'none');
+
+        if (!isModalOpen) {
+            const attackBtn = document.getElementById('attackBtn');
+            if (attackBtn) {
+                pressButton(attackBtn, `Opening Active Skills modal for ${skillDef.name}...`);
+            }
+            return;
+        }
+
+        const grid = document.getElementById('skillsGrid');
+        if (!grid) return;
+
+        const cards = Array.from(grid.querySelectorAll('.skillCard'));
+        const targetCard = cards.find(card => {
+            const nameEl = card.querySelector('.skillName');
+            return nameEl && nameEl.innerText.trim().toLowerCase() === skillDef.name.toLowerCase();
+        });
+
+        if (!targetCard) {
+            addLog(`Skill ${skillDef.name} card not found in grid.`);
+            return;
+        }
+
+        if (targetCard.disabled || targetCard.hasAttribute('disabled')) {
+            addLog(`Skill ${skillDef.name} is disabled. Waiting...`);
+            return;
+        }
+
+        if (pressButton(targetCard, `Executing Active Skill: ${skillDef.name}!`)) {
+            ourTurnReadyTimestamp = null;
+            if (config.mode === 'rotation' && config.skills.includes(skillDef.name)) {
+                config.rotationIndex = (config.rotationIndex + 1) % config.skills.length;
+                saveConfig();
+            }
+        }
+    }
+
+    function executeHealSkill(skillDef) {
+        const healModal = document.getElementById('healModal');
+        const isModalOpen = healModal && (healModal.classList.contains('show') || healModal.getAttribute('aria-hidden') === 'false' || getComputedStyle(healModal).display !== 'none');
+
+        if (!isModalOpen) {
+            const card = document.getElementById('bottomTeamCard') || document.querySelector('.pSlot[data-side="ally"]');
+            if (card) {
+                pressButton(card, `Clicking character card to open Heal Skills modal for ${skillDef.name}...`);
+            }
+            return;
+        }
+
+        const grid = document.getElementById('healGrid');
+        if (!grid) return;
+
+        const cards = Array.from(grid.querySelectorAll('.skillCard'));
+        const targetCard = cards.find(card => {
+            const nameEl = card.querySelector('.skillName');
+            return nameEl && nameEl.innerText.trim().toLowerCase() === skillDef.name.toLowerCase();
+        });
+
+        if (!targetCard) {
+            addLog(`Heal Skill card not found in grid.`);
+            return;
+        }
+
+        if (targetCard.disabled || targetCard.hasAttribute('disabled')) {
+            addLog(`Heal Skill ${skillDef.name} is disabled. Waiting...`);
+            return;
+        }
+
+        if (pressButton(targetCard, `Executing Heal Skill: ${skillDef.name}!`)) {
+            ourTurnReadyTimestamp = null;
+            if (config.mode === 'rotation' && config.skills.includes(skillDef.name)) {
+                config.rotationIndex = (config.rotationIndex + 1) % config.skills.length;
+                saveConfig();
+            }
+        }
+    }
+
+    function clickBackButton() {
+        const backBtn = document.querySelector('a.back-btn') || document.querySelector('a[href="pvp.php"]');
+        if (backBtn) {
+            pressButton(backBtn, 'Pressing Back button...');
+        } else {
+            console.warn('[PvP Bot] Back button not found.');
+        }
+    }
+
+    // Run automation loop every 800ms to immediately execute skill as soon as enemy turn finishes, well before 10s timer expires
+    setInterval(tick, 800);
+
+})();

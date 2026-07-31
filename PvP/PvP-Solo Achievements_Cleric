@@ -1,11 +1,10 @@
 // ==UserScript==
 // @name         PvP Auto-Battle Bot & HUD
 // @version      1.3.0
-// @description  Automated PvP solo battler for DemonicScans with 3-skill priority/rotation logic, 2s skill activation delay after enemy turn, Slash fallback (+3 tokens), Heal HP threshold, Fast Enemy Turn auto-clicker.
+// @description  Automated PvP solo battler for DemonicScans with 3-skill priority/rotation logic, 2s skill activation delay after enemy turn, Slash fallback, Heal HP threshold, Fast Enemy Turn auto-clicker.
 // @author       Arvin
 // @match        https://demonicscans.org/pvp.php*
 // @match        https://demonicscans.org/pvp_battle.php*
-// @icon         https://www.google.com/s2/favicons?sz=64&domain=demonicscans.org
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @run-at       document-end
@@ -69,6 +68,7 @@
     // State Tracking
     let matchWonTimestamp = null;
     let fastEnemyClickedThisMatch = false;
+    let continueBtnClicked = false;
     let ourTurnReadyTimestamp = null;
     let lastButtonPressTimestamp = 0;
     let lastDelayLogTime = 0;
@@ -87,7 +87,10 @@
         }
         lastButtonPressTimestamp = Date.now();
         if (actionName) addLog(actionName);
-        el.click();
+        try {
+            el.click();
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        } catch (e) {}
         return true;
     }
 
@@ -232,7 +235,7 @@
                         box-sizing: border-box;
                     " />
                     <span style="font-size: 10px; color: #71717a; display: block; margin-top: 2px;">
-                        Bot pauses when threshold hit.
+                        Tokens refill +3/hr. Bot pauses when threshold hit.
                     </span>
                 </div>
 
@@ -363,8 +366,18 @@
         return parseInt(parts[0], 10) || 0;
     }
 
+    function getAllyCard() {
+        return document.querySelector('.pSlot[data-side="ally"]') ||
+               document.querySelector('.pSlot.clickable') ||
+               document.querySelector('.pSlot.ally') ||
+               document.querySelector('.pSlot[data-slot="1"]') ||
+               document.getElementById('bottomTeamCard') ||
+               document.querySelector('[id*="bottomTeam"]') ||
+               document.querySelector('.teamTurnActive');
+    }
+
     function getAllyHpPercent() {
-        const card = document.getElementById('bottomTeamCard');
+        const card = getAllyCard();
         if (!card) return 100;
         const textEl = card.innerText || '';
         // Look for pattern "293,252 / 379,000"
@@ -439,6 +452,7 @@
     function handlePvPPage() {
         matchWonTimestamp = null;
         fastEnemyClickedThisMatch = false; // Reset per match
+        continueBtnClicked = false; // Reset per match
         const soloTokens = getSoloPvPTokens();
 
         if (soloTokens > config.minSoloTokens) {
@@ -486,15 +500,14 @@
             }
 
             if (text.includes('your side won') || text.includes('won')) {
-                const continueBtn = document.getElementById('continueRewardsBtn');
+                const continueBtn = document.getElementById('continueRewardsBtn') || document.querySelector('#continueRewardsBtn, .continueRewardsBtn, [id*="continue"]');
 
-                if (continueBtn) {
+                if (!continueBtnClicked && continueBtn) {
                     if (!continueBtn.disabled && !continueBtn.classList.contains('disabled')) {
                         const clickedContinue = pressButton(continueBtn, 'Match Won! Clicking Continue button...');
                         if (clickedContinue) {
-                            addLog('Match Won! Back button scheduled after 2s delay...');
-                        } else {
-                            clickBackButton();
+                            continueBtnClicked = true;
+                            addLog('Match Won! Continue button clicked. Moving to Back button...');
                         }
                         return;
                     } else {
@@ -504,19 +517,17 @@
                         } else {
                             const elapsedSec = (Date.now() - matchWonTimestamp) / 1000;
                             if (elapsedSec > 5) {
-                                addLog(`Continue button disabled > 5s (${elapsedSec.toFixed(1)}s). Clicking Back button...`);
-                                clickBackButton();
-                                return;
+                                addLog(`Continue button disabled > 5s (${elapsedSec.toFixed(1)}s). Proceeding to Back button...`);
+                                continueBtnClicked = true;
                             } else {
                                 addLog(`Waiting for Continue button... (${elapsedSec.toFixed(1)}s / 5s)`);
+                                return;
                             }
                         }
                     }
-                } else {
-                    addLog('Match Won! No Continue button found. Clicking Back button...');
-                    clickBackButton();
-                    return;
                 }
+
+                clickBackButton();
                 return;
             }
         }
@@ -578,7 +589,7 @@
             }
         }
 
-        // FALLBACK LOGIC: If no selected skill can be used or no skills selected, fallback to Slash (+3 tokens, 0 cost)
+        // FALLBACK LOGIC: If no selected skill can be used or no skills selected, fallback to Slash
         if (!chosenSkillName) {
             if (validSkills.length === 0) {
                 addLog('No skills selected in HUD configuration. Fallback to Slash!');
@@ -615,25 +626,51 @@
         return tokens >= def.cost;
     }
 
-    function executeActiveSkill(skillDef) {
-        const skillsModal = document.getElementById('skillsModal');
-        const isModalOpen = skillsModal && (skillsModal.classList.contains('show') || skillsModal.getAttribute('aria-hidden') === 'false' || getComputedStyle(skillsModal).display !== 'none');
+    function isElementVisible(el) {
+        if (!el) return false;
+        try {
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                return false;
+            }
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        } catch (e) {
+            return false;
+        }
+    }
 
-        if (!isModalOpen) {
-            const attackBtn = document.getElementById('attackBtn');
+    function isModalVisible(modalId, gridId) {
+        const modal = document.getElementById(modalId) || document.querySelector(`.${modalId}`) || document.querySelector(`#${modalId}`);
+        const grid = document.getElementById(gridId) || document.querySelector(`.${gridId}`) || document.querySelector(`#${gridId}`);
+
+        if (modal && isElementVisible(modal)) return true;
+        if (grid && isElementVisible(grid)) return true;
+
+        return false;
+    }
+
+    function executeActiveSkill(skillDef) {
+        const modalOpen = isModalVisible('skillsModal', 'skillsGrid');
+
+        if (!modalOpen) {
+            const attackBtn = document.getElementById('attackBtn') || document.querySelector('.attackBtn') || document.querySelector('#attack-btn') || document.querySelector('[id*="attack"]');
             if (attackBtn) {
                 pressButton(attackBtn, `Opening Active Skills modal for ${skillDef.name}...`);
+            } else {
+                addLog('Attack button (#attackBtn) not found on page.');
             }
             return;
         }
 
-        const grid = document.getElementById('skillsGrid');
-        if (!grid) return;
-
-        const cards = Array.from(grid.querySelectorAll('.skillCard'));
+        const grid = document.getElementById('skillsGrid') || document.querySelector('.skillsGrid') || document.querySelector('#skills-grid');
+        const modal = document.getElementById('skillsModal') || document.querySelector('.skillsModal') || document.querySelector('#skills-modal');
+        const searchContainer = grid || modal || document;
+        const cards = Array.from(searchContainer.querySelectorAll('.skillCard, .skill-card, [data-skill]'));
         const targetCard = cards.find(card => {
-            const nameEl = card.querySelector('.skillName');
-            return nameEl && nameEl.innerText.trim().toLowerCase() === skillDef.name.toLowerCase();
+            const nameEl = card.querySelector('.skillName, .skill-name, .name') || card;
+            const text = (nameEl.innerText || nameEl.textContent || '').trim().toLowerCase();
+            return text.includes(skillDef.name.toLowerCase());
         });
 
         if (!targetCard) {
@@ -641,7 +678,13 @@
             return;
         }
 
-        if (targetCard.disabled || targetCard.hasAttribute('disabled')) {
+        const isCardDisabled = targetCard.disabled ||
+                               targetCard.hasAttribute('disabled') ||
+                               targetCard.classList.contains('disabled') ||
+                               targetCard.classList.contains('cursor-not-allowed') ||
+                               !!targetCard.querySelector('.disabled');
+
+        if (isCardDisabled) {
             addLog(`Skill ${skillDef.name} is disabled. Waiting...`);
             return;
         }
@@ -656,32 +699,40 @@
     }
 
     function executeHealSkill(skillDef) {
-        const healModal = document.getElementById('healModal');
-        const isModalOpen = healModal && (healModal.classList.contains('show') || healModal.getAttribute('aria-hidden') === 'false' || getComputedStyle(healModal).display !== 'none');
+        const modalOpen = isModalVisible('healModal', 'healGrid');
 
-        if (!isModalOpen) {
-            const card = document.getElementById('bottomTeamCard') || document.querySelector('.pSlot[data-side="ally"]');
+        if (!modalOpen) {
+            const card = getAllyCard();
             if (card) {
                 pressButton(card, `Clicking character card to open Heal Skills modal for ${skillDef.name}...`);
+            } else {
+                addLog('Ally character card (#bottomTeamCard) not found on page.');
             }
             return;
         }
 
-        const grid = document.getElementById('healGrid');
-        if (!grid) return;
-
-        const cards = Array.from(grid.querySelectorAll('.skillCard'));
+        const grid = document.getElementById('healGrid') || document.querySelector('.healGrid') || document.querySelector('#heal-grid');
+        const modal = document.getElementById('healModal') || document.querySelector('.healModal') || document.querySelector('#heal-modal');
+        const searchContainer = grid || modal || document;
+        const cards = Array.from(searchContainer.querySelectorAll('.skillCard, .skill-card, [data-skill]'));
         const targetCard = cards.find(card => {
-            const nameEl = card.querySelector('.skillName');
-            return nameEl && nameEl.innerText.trim().toLowerCase() === skillDef.name.toLowerCase();
+            const nameEl = card.querySelector('.skillName, .skill-name, .name') || card;
+            const text = (nameEl.innerText || nameEl.textContent || '').trim().toLowerCase();
+            return text.includes(skillDef.name.toLowerCase());
         });
 
         if (!targetCard) {
-            addLog(`Heal Skill card not found in grid.`);
+            addLog(`Heal Skill ${skillDef.name} card not found in grid.`);
             return;
         }
 
-        if (targetCard.disabled || targetCard.hasAttribute('disabled')) {
+        const isCardDisabled = targetCard.disabled ||
+                               targetCard.hasAttribute('disabled') ||
+                               targetCard.classList.contains('disabled') ||
+                               targetCard.classList.contains('cursor-not-allowed') ||
+                               !!targetCard.querySelector('.disabled');
+
+        if (isCardDisabled) {
             addLog(`Heal Skill ${skillDef.name} is disabled. Waiting...`);
             return;
         }
